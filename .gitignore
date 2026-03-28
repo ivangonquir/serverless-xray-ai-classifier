@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+.eggs/
+*.egg
+
+# Node
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env.production
+
+# AWS CDK
+infrastructure/cdk.out/
+
+# ML artifacts
+ml/training/data/chest_xray
+ml/*.tar.gz
+*.pt
+*.pth
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
