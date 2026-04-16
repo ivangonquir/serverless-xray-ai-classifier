@@ -8,135 +8,280 @@ from aws_cdk import (
     aws_ssm as ssm,
     CfnOutput,
 )
-from aws_cdk import aws_s3 as s3
-from aws_cdk import aws_sqs as sqs
-from aws_cdk import aws_dynamodb as dynamodb
 from constructs import Construct
+
+from stacks.storage_stack import StorageStack
+from stacks.websocket_stack import WebSocketStack
+from stacks.sagemaker_stack import SageMakerStack
 
 
 class LambdaStack(Stack):
+    """
+    Creates every Lambda function in the LUNA backend and wires up their
+    permissions, environment variables, event sources, and WebSocket routes.
+
+    Public properties (consumed by ApiStack to build REST routes):
+        authorizer_fn, auth_fn, patient_fn, upload_fn,
+        diagnostic_fn, assistant_fn
+    """
+
     def __init__(
         self,
         scope: Construct,
         construct_id: str,
-        image_bucket: s3.Bucket,
-        connections_table: dynamodb.Table,
-        results_table: dynamodb.Table,
-        queue: sqs.Queue,
-        websocket_api: apigwv2.CfnApi,
+        storage_stack: StorageStack,
+        websocket_stack: WebSocketStack,
+        sagemaker_stack: SageMakerStack,
         **kwargs,
     ):
         super().__init__(scope, construct_id, **kwargs)
 
-        sagemaker_endpoint_name = ssm.StringParameter.value_for_string_parameter(
-            self, "/xray/sagemaker/endpoint-name"
-        )
+        ws_api = websocket_stack.api
+        ws_mgmt = websocket_stack.websocket_management_endpoint
 
-        # --- Shared Lambda role base ---
-        base_role = iam.Role(
-            self,
-            "LambdaBaseRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "service-role/AWSLambdaBasicExecutionRole"
-                )
-            ],
-        )
-
-        # ── 1. Connection Manager Lambda ──────────────────────────────────────
-        connection_fn = lambda_.Function(
-            self,
-            "ConnectionManager",
+        # ── 1. Lambda Authorizer ─────────────────────────────────────────
+        # Validates Bearer session tokens on every protected REST endpoint.
+        # Writes an audit record for each authorised request (FR-1.2).
+        self.authorizer_fn = lambda_.Function(
+            self, "LunaAuthorizer",
             runtime=lambda_.Runtime.PYTHON_3_11,
-            code=lambda_.Code.from_asset("../backend/lambdas/connection_manager"),
+            code=lambda_.Code.from_asset("../backend/lambdas/authorizer"),
             handler="handler.lambda_handler",
-            timeout=Duration.seconds(10),
+            timeout=Duration.seconds(5),
+            memory_size=128,
             environment={
-                "CONNECTIONS_TABLE": connections_table.table_name,
+                "SESSIONS_TABLE": storage_stack.sessions_table.table_name,
+                "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
             },
         )
-        connections_table.grant_read_write_data(connection_fn)
+        storage_stack.sessions_table.grant_read_data(self.authorizer_fn)
+        storage_stack.audit_log_table.grant_write_data(self.authorizer_fn)
 
-        # ── 2. URL Generator Lambda ───────────────────────────────────────────
-        url_generator_fn = lambda_.Function(
-            self,
-            "UrlGenerator",
+        # ── 2. Auth Handler ──────────────────────────────────────────────
+        # POST /auth/login  — validates credentials, issues session token
+        # POST /auth/logout — invalidates session
+        # POST /auth/seed   — creates initial test users (dev only)
+        self.auth_fn = lambda_.Function(
+            self, "LunaAuthHandler",
             runtime=lambda_.Runtime.PYTHON_3_11,
-            code=lambda_.Code.from_asset("../backend/lambdas/url_generator"),
+            code=lambda_.Code.from_asset("../backend/lambdas/auth_handler"),
             handler="handler.lambda_handler",
             timeout=Duration.seconds(10),
+            memory_size=256,
             environment={
-                "IMAGE_BUCKET": image_bucket.bucket_name,
+                "USERS_TABLE": storage_stack.users_table.table_name,
+                "SESSIONS_TABLE": storage_stack.sessions_table.table_name,
+                "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+                # HMAC key for password hashing — override in SSM/Secrets Manager
+                # for production deployments
+                "PASSWORD_SECRET": "luna-dev-secret-change-in-production",
             },
         )
-        image_bucket.grant_put(url_generator_fn)
+        storage_stack.users_table.grant_read_write_data(self.auth_fn)
+        storage_stack.sessions_table.grant_read_write_data(self.auth_fn)
+        storage_stack.audit_log_table.grant_write_data(self.auth_fn)
 
-        # ── 3. Inference Worker Lambda ────────────────────────────────────────
+        # ── 3. Patient Handler ───────────────────────────────────────────
+        # GET  /patients        — triage list sorted by LUNA Risk Score
+        # GET  /patients/{id}   — patient detail + latest diagnostic result
+        # POST /patients        — register a new patient
+        self.patient_fn = lambda_.Function(
+            self, "LunaPatientHandler",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            code=lambda_.Code.from_asset("../backend/lambdas/patient_handler"),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(10),
+            memory_size=256,
+            environment={
+                "PATIENTS_TABLE": storage_stack.patients_table.table_name,
+                "DIAGNOSTIC_RESULTS_TABLE": storage_stack.diagnostic_results_table.table_name,
+                "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+            },
+        )
+        storage_stack.patients_table.grant_read_write_data(self.patient_fn)
+        storage_stack.diagnostic_results_table.grant_read_data(self.patient_fn)
+        storage_stack.audit_log_table.grant_write_data(self.patient_fn)
+
+        # ── 4. Upload Handler ────────────────────────────────────────────
+        # POST /patients/{id}/upload
+        # Generates a short-lived pre-signed S3 PUT URL so the browser
+        # uploads directly to S3 without going through API Gateway (FR-3.1)
+        self.upload_fn = lambda_.Function(
+            self, "LunaUploadHandler",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            code=lambda_.Code.from_asset("../backend/lambdas/upload_handler"),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(10),
+            memory_size=128,
+            environment={
+                "DICOM_BUCKET": storage_stack.dicom_bucket.bucket_name,
+                "PATIENTS_TABLE": storage_stack.patients_table.table_name,
+                "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+            },
+        )
+        storage_stack.dicom_bucket.grant_put(self.upload_fn)
+        storage_stack.patients_table.grant_read_data(self.upload_fn)
+        storage_stack.audit_log_table.grant_write_data(self.upload_fn)
+
+        # ── 5. Diagnostic Handler ────────────────────────────────────────
+        # POST /patients/{id}/diagnose   — validates input, enqueues job (FR-2.1-2.3)
+        # GET  /patients/{id}/results    — retrieves all results for a patient
+        self.diagnostic_fn = lambda_.Function(
+            self, "LunaDiagnosticHandler",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            code=lambda_.Code.from_asset("../backend/lambdas/diagnostic_handler"),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(15),
+            memory_size=256,
+            environment={
+                "PATIENTS_TABLE": storage_stack.patients_table.table_name,
+                "DIAGNOSTIC_RESULTS_TABLE": storage_stack.diagnostic_results_table.table_name,
+                "DIAGNOSTIC_QUEUE_URL": storage_stack.diagnostic_queue.queue_url,
+                "CONNECTIONS_TABLE": storage_stack.connections_table.table_name,
+                "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+            },
+        )
+        storage_stack.patients_table.grant_read_write_data(self.diagnostic_fn)
+        storage_stack.diagnostic_results_table.grant_read_write_data(self.diagnostic_fn)
+        storage_stack.diagnostic_queue.grant_send_messages(self.diagnostic_fn)
+        storage_stack.audit_log_table.grant_write_data(self.diagnostic_fn)
+
+        # ── 6. Inference Worker ──────────────────────────────────────────
+        # SQS trigger → download DICOM → invoke SageMaker → multimodal fusion
+        # → write result → push to WebSocket (FR-4.1, FR-4.2, FR-6.2)
         inference_fn = lambda_.Function(
-            self,
-            "InferenceWorker",
+            self, "LunaInferenceWorker",
             runtime=lambda_.Runtime.PYTHON_3_11,
             code=lambda_.Code.from_asset("../backend/lambdas/inference_worker"),
             handler="handler.lambda_handler",
-            timeout=Duration.seconds(300),
+            timeout=Duration.seconds(300),  # Accommodates SageMaker cold starts
+            memory_size=1024,
             environment={
-                "CONNECTIONS_TABLE": connections_table.table_name,
-                "RESULTS_TABLE": results_table.table_name,
-                "SAGEMAKER_ENDPOINT": sagemaker_endpoint_name,
-                "WEBSOCKET_ENDPOINT": f"https://{websocket_api.ref}.execute-api.{self.region}.amazonaws.com/prod",
+                "PATIENTS_TABLE": storage_stack.patients_table.table_name,
+                "DIAGNOSTIC_RESULTS_TABLE": storage_stack.diagnostic_results_table.table_name,
+                "DICOM_BUCKET": storage_stack.dicom_bucket.bucket_name,
+                "SAGEMAKER_ENDPOINT": sagemaker_stack.endpoint_name,
+                "WEBSOCKET_ENDPOINT": ws_mgmt,
             },
         )
-        connections_table.grant_read_data(inference_fn)
-        results_table.grant_write_data(inference_fn)
-        image_bucket.grant_read(inference_fn)
-        queue.grant_consume_messages(inference_fn)
-
-        # Trigger inference Lambda from SQS
-        inference_fn.add_event_source(
-            lambda_es.SqsEventSource(queue, batch_size=1)
-        )
-
-        # Allow inference Lambda to call SageMaker and send WebSocket messages
+        storage_stack.patients_table.grant_read_data(inference_fn)
+        storage_stack.diagnostic_results_table.grant_read_write_data(inference_fn)
+        storage_stack.dicom_bucket.grant_read(inference_fn)
+        storage_stack.connections_table.grant_read_data(inference_fn)
+        storage_stack.diagnostic_queue.grant_consume_messages(inference_fn)
+        # Call the LUNA classifier endpoint
         inference_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["sagemaker:InvokeEndpoint"],
                 resources=["*"],
             )
         )
+        # Push results back to connected browsers via WebSocket
         inference_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["execute-api:ManageConnections"],
                 resources=[
-                    f"arn:aws:execute-api:{self.region}:{self.account}:{websocket_api.ref}/prod/POST/@connections/*"
+                    f"arn:aws:execute-api:{self.region}:{self.account}:{ws_api.ref}/prod/POST/@connections/*"
                 ],
             )
         )
-
-        # ── WebSocket Routes ──────────────────────────────────────────────────
-        self._add_websocket_route(
-            websocket_api, "$connect", connection_fn, "ConnectIntegration"
-        )
-        self._add_websocket_route(
-            websocket_api, "$disconnect", connection_fn, "DisconnectIntegration"
-        )
-        self._add_websocket_route(
-            websocket_api, "getUploadUrl", url_generator_fn, "UrlGenIntegration"
+        # SQS event source — process one job at a time
+        inference_fn.add_event_source(
+            lambda_es.SqsEventSource(
+                storage_stack.diagnostic_queue,
+                batch_size=1,
+            )
         )
 
-        CfnOutput(self, "InferenceFunctionName", value=inference_fn.function_name)
+        # ── 7. Assistant Handler ─────────────────────────────────────────
+        # POST /assistant/query       — RAG retrieval + LLM answer + citations
+        # GET  /patients/{id}/chat    — chat history for a patient
+        self.assistant_fn = lambda_.Function(
+            self, "LunaAssistantHandler",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            code=lambda_.Code.from_asset("../backend/lambdas/assistant_handler"),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(30),
+            memory_size=1024,
+            environment={
+                "PATIENTS_TABLE": storage_stack.patients_table.table_name,
+                "DIAGNOSTIC_RESULTS_TABLE": storage_stack.diagnostic_results_table.table_name,
+                "CHAT_HISTORY_TABLE": storage_stack.chat_history_table.table_name,
+                "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+                "OPENSEARCH_ENDPOINT": storage_stack.opensearch_domain.domain_endpoint,
+                "OPENSEARCH_INDEX": "luna-docs",
+                # Set to a SageMaker endpoint name to use the ML team's LLM;
+                # leave empty to fall back to Amazon Bedrock Claude
+                "LLM_SAGEMAKER_ENDPOINT": "",
+                "BEDROCK_MODEL_ID": "anthropic.claude-haiku-4-5",
+            },
+        )
+        storage_stack.patients_table.grant_read_data(self.assistant_fn)
+        storage_stack.diagnostic_results_table.grant_read_data(self.assistant_fn)
+        storage_stack.chat_history_table.grant_read_write_data(self.assistant_fn)
+        storage_stack.audit_log_table.grant_write_data(self.assistant_fn)
+        storage_stack.opensearch_domain.grant_read_write(self.assistant_fn)
+        # Bedrock access for the LLM fallback
+        self.assistant_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["bedrock:InvokeModel"],
+                resources=["*"],
+            )
+        )
+        # Optional: invoke the ML team's LLM SageMaker endpoint
+        self.assistant_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["sagemaker:InvokeEndpoint"],
+                resources=["*"],
+            )
+        )
 
-    def _add_websocket_route(self, api, route_key, fn, integration_id):
+        # ── 8. Connection Manager ────────────────────────────────────────
+        # WebSocket $connect / $disconnect — maintains the connections table
+        # so the inference_worker knows where to push results (FR-6.2)
+        connection_fn = lambda_.Function(
+            self, "LunaConnectionManager",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            code=lambda_.Code.from_asset("../backend/lambdas/connection_manager"),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(10),
+            memory_size=128,
+            environment={
+                "CONNECTIONS_TABLE": storage_stack.connections_table.table_name,
+            },
+        )
+        storage_stack.connections_table.grant_read_write_data(connection_fn)
+
+        # ── WebSocket Routes ─────────────────────────────────────────────
+        self._add_websocket_route(ws_api, "$connect", connection_fn, "ConnectIntegration")
+        self._add_websocket_route(ws_api, "$disconnect", connection_fn, "DisconnectIntegration")
+
+        # ── Outputs ──────────────────────────────────────────────────────
+        CfnOutput(self, "InferenceWorkerName", value=inference_fn.function_name)
+        CfnOutput(self, "AssistantFunctionName", value=self.assistant_fn.function_name)
+
+    # ── Helpers ──────────────────────────────────────────────────────────
+
+    def _add_websocket_route(
+        self,
+        api: apigwv2.CfnApi,
+        route_key: str,
+        fn: lambda_.Function,
+        integration_id: str,
+    ):
+        """Registers a Lambda integration for a WebSocket route and grants
+        API Gateway permission to invoke the function."""
         integration = apigwv2.CfnIntegration(
-            self,
-            integration_id,
+            self, integration_id,
             api_id=api.ref,
             integration_type="AWS_PROXY",
-            integration_uri=f"arn:aws:apigateway:{self.region}:lambda:path/2015-03-31/functions/{fn.function_arn}/invocations",
+            integration_uri=(
+                f"arn:aws:apigateway:{self.region}:lambda:path"
+                f"/2015-03-31/functions/{fn.function_arn}/invocations"
+            ),
         )
         apigwv2.CfnRoute(
-            self,
-            f"Route{integration_id}",
+            self, f"Route{integration_id}",
             api_id=api.ref,
             route_key=route_key,
             target=f"integrations/{integration.ref}",

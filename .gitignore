@@ -19,7 +19,8 @@ out/
 infrastructure/cdk.out/
 
 # ML artifacts
-ml/training/data/chest_xray
+ml/training/data/
+ml/training/dat/
 ml/*.tar.gz
 *.pt
 *.pth

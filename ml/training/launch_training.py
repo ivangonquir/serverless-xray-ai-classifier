@@ -19,7 +19,7 @@ estimator = PyTorch(
     instance_type="ml.m5.xlarge",  # Switch to ml.g4dn.xlarge for GPU
     instance_count=1,
     framework_version="2.2",
-    py_version="py311",
+    py_version="py310",
     hyperparameters={
         "epochs": 15,
         "batch-size": 32,
