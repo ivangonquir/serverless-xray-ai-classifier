@@ -43,7 +43,7 @@ lambdas = LambdaStack(
 
 # ── Layer 5: REST API ────────────────────────────────────────────────────
 # API Gateway routes, Lambda authorizer, CORS, rate limiting
-api = ApiStack(app, "LunaApiStack", lambda_stack=lambdas, env=env)
+api = ApiStack(app, "LunaApiStack", lambda_stack=lambdas, storage_stack=storage, env=env)
 
 # ── Layer 6: Frontend Hosting ────────────────────────────────────────────
 # S3 + CloudFront for the React SPA (owned by Team 3)

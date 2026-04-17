@@ -3,11 +3,13 @@ from aws_cdk import (
     Duration,
     aws_apigateway as apigw,
     aws_iam as iam,
+    aws_lambda as lambda_,
     CfnOutput,
 )
 from constructs import Construct
 
 from stacks.lambda_stack import LambdaStack
+from stacks.storage_stack import StorageStack
 
 
 class ApiStack(Stack):
@@ -30,9 +32,29 @@ class ApiStack(Stack):
         scope: Construct,
         construct_id: str,
         lambda_stack: LambdaStack,
+        storage_stack: StorageStack,
         **kwargs,
     ):
         super().__init__(scope, construct_id, **kwargs)
+
+        # ── Lambda Authorizer function ────────────────────────────────────
+        # Defined here (not in LambdaStack) to avoid a circular cross-stack
+        # reference: TokenAuthorizer adds a permission that references the
+        # REST API ARN, which would point back from LambdaStack → ApiStack.
+        authorizer_fn = lambda_.Function(
+            self, "LunaAuthorizer",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            code=lambda_.Code.from_asset("../backend/lambdas/authorizer"),
+            handler="handler.lambda_handler",
+            timeout=Duration.seconds(5),
+            memory_size=128,
+            environment={
+                "SESSIONS_TABLE": storage_stack.sessions_table.table_name,
+                "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+            },
+        )
+        storage_stack.sessions_table.grant_read_data(authorizer_fn)
+        storage_stack.audit_log_table.grant_write_data(authorizer_fn)
 
         # ── REST API ─────────────────────────────────────────────────────
         api = apigw.RestApi(
@@ -58,13 +80,13 @@ class ApiStack(Stack):
             ),
         )
 
-        # ── Lambda Authorizer ────────────────────────────────────────────
+        # ── Token Authorizer ──────────────────────────────────────────────
         # Validates Bearer <sessionToken> on every protected route.
         # Results are NOT cached so every request is validated (no stale
         # sessions can slip through after logout).
         authorizer = apigw.TokenAuthorizer(
             self, "LunaTokenAuthorizer",
-            handler=lambda_stack.authorizer_fn,
+            handler=authorizer_fn,
             identity_source="method.request.header.Authorization",
             results_cache_ttl=Duration.seconds(0),
         )

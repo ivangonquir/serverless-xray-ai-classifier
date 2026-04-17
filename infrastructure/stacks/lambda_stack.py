@@ -39,25 +39,7 @@ class LambdaStack(Stack):
         ws_api = websocket_stack.api
         ws_mgmt = websocket_stack.websocket_management_endpoint
 
-        # ── 1. Lambda Authorizer ─────────────────────────────────────────
-        # Validates Bearer session tokens on every protected REST endpoint.
-        # Writes an audit record for each authorised request (FR-1.2).
-        self.authorizer_fn = lambda_.Function(
-            self, "LunaAuthorizer",
-            runtime=lambda_.Runtime.PYTHON_3_11,
-            code=lambda_.Code.from_asset("../backend/lambdas/authorizer"),
-            handler="handler.lambda_handler",
-            timeout=Duration.seconds(5),
-            memory_size=128,
-            environment={
-                "SESSIONS_TABLE": storage_stack.sessions_table.table_name,
-                "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
-            },
-        )
-        storage_stack.sessions_table.grant_read_data(self.authorizer_fn)
-        storage_stack.audit_log_table.grant_write_data(self.authorizer_fn)
-
-        # ── 2. Auth Handler ──────────────────────────────────────────────
+        # ── 1. Auth Handler ──────────────────────────────────────────────
         # POST /auth/login  — validates credentials, issues session token
         # POST /auth/logout — invalidates session
         # POST /auth/seed   — creates initial test users (dev only)
