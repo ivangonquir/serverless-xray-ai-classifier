@@ -14,7 +14,7 @@ from stacks.storage_stack import StorageStack
 # (same framework version used by the ML team in ml/inference/inference.py)
 PYTORCH_INFERENCE_IMAGE = (
     "763104351884.dkr.ecr.{region}.amazonaws.com/"
-    "pytorch-inference:2.2.0-cpu-py311-ubuntu20.04-sagemaker"
+    "pytorch-inference:2.6.0-cpu-py312-ubuntu22.04-sagemaker"
 )
 
 
@@ -50,10 +50,13 @@ class SageMakerStack(Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "AmazonSageMakerFullAccess"
                 ),
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonS3ReadOnlyAccess"
+                ),
             ],
         )
         # Allow SageMaker to read the trained model artifact from S3
-        storage_stack.dicom_bucket.grant_read(self.sagemaker_role)
+        grant = storage_stack.dicom_bucket.grant_read(self.sagemaker_role)
 
         # ── Conditional endpoint deployment ─────────────────────────────
         model_artifact_uri = self.node.try_get_context("model_artifact_uri")
@@ -78,6 +81,8 @@ class SageMakerStack(Stack):
                     },
                 ),
             )
+            # Ensure the role and all its policies exist before creating the model
+            cfn_model.node.add_dependency(self.sagemaker_role)
 
             # Endpoint configuration — serverless to minimise idle cost
             endpoint_config = sagemaker.CfnEndpointConfig(

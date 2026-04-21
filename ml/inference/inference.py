@@ -50,12 +50,16 @@ def predict_fn(input_tensor, model):
 
 
 def output_fn(probs, accept):
+    pneumonia_prob = round(probs[1] * 100, 2)
+    label = "MALIGNANT" if probs[1] > probs[0] else "BENIGN"
     prediction = {
-        "label": CLASSES[int(probs[1] > probs[0])],
+        "malignancyScore": pneumonia_prob,
+        "nodulesDetected": [],
+        "label": label,
         "confidence": round(max(probs) * 100, 2),
         "probabilities": {
             CLASSES[0]: round(probs[0] * 100, 2),
-            CLASSES[1]: round(probs[1] * 100, 2),
+            CLASSES[1]: pneumonia_prob,
         },
     }
     return json.dumps(prediction), "application/json"

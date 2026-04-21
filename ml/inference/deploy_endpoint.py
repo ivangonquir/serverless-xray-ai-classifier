@@ -11,7 +11,7 @@ from sagemaker.serverless import ServerlessInferenceConfig
 # ── Update this after training completes ──────────────────────────────────────
 MODEL_ARTIFACT_S3 = "s3://xray-classifier-113627992593/models/xray-classifier/YOUR-JOB/output/model.tar.gz"
 ENDPOINT_NAME = "xray-classifier-serverless"
-REGION = "us-east-1"
+REGION = "eu-west-1"
 SSM_PARAM = "/xray/sagemaker/endpoint-name"
 # ─────────────────────────────────────────────────────────────────────────────
 
