@@ -1,24 +1,21 @@
 import boto3
 import os
 import time
-import uuid
 from dotenv import load_dotenv
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-# Load environment variables
 load_dotenv()
 
 AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
-MODEL_ID = os.getenv("BEDROCK_MODEL_ID")
+TABLE_NAME = os.getenv("TABLE_NAME")
 
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
-TABLE_NAME = "luna-chat-history"
 
 def get_or_create_table():
     try:
         table = dynamodb.Table(TABLE_NAME)
-        table.load()  # check if exists
+        table.load()
         return table
 
     except ClientError as e:
@@ -43,14 +40,15 @@ def get_or_create_table():
         else:
             raise
 
+
 table = get_or_create_table()
 
-MAX_MESSAGES = 200  # 100 exchanges (user + assistant)
+MAX_MESSAGES = 200
+
 
 def save_message(patient_id, role, content):
     timestamp = int(time.time() * 1000)
 
-    # Save new message
     table.put_item(
         Item={
             "patient_id": patient_id,
@@ -60,18 +58,17 @@ def save_message(patient_id, role, content):
         }
     )
 
-    # Enforce max history size
     enforce_limit(patient_id)
+
 
 def enforce_limit(patient_id):
     response = table.query(
         KeyConditionExpression=Key("patient_id").eq(patient_id),
-        ScanIndexForward=True  # oldest first
+        ScanIndexForward=True
     )
 
     items = response.get("Items", [])
 
-    # Pagination
     while "LastEvaluatedKey" in response:
         response = table.query(
             KeyConditionExpression=Key("patient_id").eq(patient_id),
@@ -80,7 +77,6 @@ def enforce_limit(patient_id):
         )
         items.extend(response.get("Items", []))
 
-    # If too many → delete oldest
     if len(items) > MAX_MESSAGES:
         excess = len(items) - MAX_MESSAGES
         to_delete = items[:excess]
@@ -93,6 +89,7 @@ def enforce_limit(patient_id):
                         "timestamp": item["timestamp"]
                     }
                 )
+
 
 def load_history(patient_id, limit=6):
     response = table.query(
@@ -112,11 +109,7 @@ def load_history(patient_id, limit=6):
 
     items = items[-limit:]
 
-    messages = []
-    for item in items:
-        messages.append({
-            "role": item["role"],
-            "content": item["content"]
-        })
-
-    return messages
+    return [
+        {"role": i["role"], "content": i["content"]}
+        for i in items
+    ]
