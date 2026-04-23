@@ -1,0 +1,59 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CheXOne – Production Configuration
+# Dual-purpose: local test runner and SageMaker async endpoint.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Model ────────────────────────────────────────────────────────────────────
+model_id: "StanfordAIMI/CheXOne"
+device: "cuda"                       # "cuda" (GPU) or "cpu" (fallback)
+max_new_tokens: 1024
+max_pixels: 1003520                  # 70×70 patch grid on most CXR images
+
+# ── Grounding ────────────────────────────────────────────────────────────────
+run_grounding: true
+grounding_max_tokens: 512
+
+# ── Local paths (relative to luna_production/) ───────────────────────────────
+dicoms_dir: "data/dicoms"
+ehr_dir: "data/ehr"
+output_dir: "outputs"
+
+# ── Model weights (local cache vs self-contained copy) ───────────────────────
+# When model_weights_dir is set and the directory exists, the runner loads
+# weights from that directory instead of the HuggingFace Hub cache.
+# Use `make copy-weights` to populate it before deploying to S3.
+# model_weights_dir: "model_weights"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# AWS / SageMaker Async Endpoint — TEAM CONFIGURATION REQUIRED
+# Replace every <PLACEHOLDER> with actual values.
+# ═════════════════════════════════════════════════════════════════════════════
+aws:
+  region: "eu-west-1"
+
+  # ── S3 ──────────────────────────────────────────────────────────────────────
+  s3_bucket: "<YOUR_S3_BUCKET>"
+  s3_prefix_inputs: "chexone/inputs"         # uploaded DICOMs land here
+  s3_prefix_outputs: "chexone/outputs"       # async endpoint writes here
+  s3_prefix_model: "chexone/model"           # model.tar.gz location
+
+  # ── ECR ─────────────────────────────────────────────────────────────────────
+  ecr_repository: "<YOUR_ECR_REPO_NAME>"     # e.g. "chexone-inference"
+  ecr_image_tag: "latest"
+
+  # ── SageMaker ───────────────────────────────────────────────────────────────
+  sagemaker_role_arn: "<YOUR_SAGEMAKER_EXECUTION_ROLE_ARN>"
+  # e.g. "arn:aws:iam::123456789012:role/SageMakerExecutionRole"
+
+  endpoint_name: "chexone-async"
+  model_name: "chexone-model"
+  endpoint_config_name: "chexone-async-config"
+
+  # GPU instance — ml.g5.2xlarge is cheapest NVIDIA A10G option in eu-west-1
+  instance_type: "ml.g5.2xlarge"
+  instance_count: 1
+
+  # Async-specific
+  max_concurrent_invocations: 2
+  # S3 failure output (optional)
+  s3_prefix_failures: "chexone/failures"

@@ -1,0 +1,79 @@
+{
+  "image_id": "09cd361cf999660b8bfc4c5833875d21",
+  "historical_ehr_context": {
+    "patient_demographics": {
+      "Patient_age": 86,
+      "age_group": ">80",
+      "sex": "Other/Unknown",
+      "ethnicity": "Hispanic/Latino",
+      "bmi_category": "Obese (≥30)"
+    },
+    "vitals_at_triage": {
+      "temperature_celsius": 37.5,
+      "heart_rate_bpm": 88,
+      "respiratory_rate_bpm": 28,
+      "systolic_bp_mmhg": 91,
+      "diastolic_bp_mmhg": 102,
+      "oxygen_saturation_SpO2": 95.4,
+      "supplemental_oxygen": "Intubated/Mechanically Ventilated"
+    },
+    "lifestyle_and_exposures": {
+      "smoking_status": "Never Smoker",
+      "pack_years": 0,
+      "alcohol_use": "Heavy/Chronic",
+      "occupational_risk": "None Known",
+      "recent_travel_or_exposure": "Endemic Fungal Region (Histoplasmosis/Coccidioidomycosis)"
+    },
+    "medical_history": {
+      "pulmonary_conditions": "COPD / Emphysema",
+      "cardiovascular_conditions": "Thoracic Aortic Aneurysm",
+      "systemic_and_immunological_conditions": "Rheumatoid Arthritis",
+      "oncological_history": "Primary Lung Cancer (Active)"
+    },
+    "surgical_history": {
+      "thoracic_and_cardiac_surgeries": "None",
+      "other_relevant_surgeries": "Recent General Surgery (<30 days, high DVT/atelectasis risk)"
+    },
+    "current_medications": {
+      "relevant_drug_classes": [
+        "Diuretics (e.g., Furosemide)"
+      ]
+    },
+    "current_admission_context": {
+      "setting_and_urgency": "Inpatient Ward (Deterioration/Monitoring)",
+      "chief_complaint": "Asymptomatic",
+      "symptom_duration_days": 353
+    },
+    "concurrent_laboratory_results": {
+      "hematology": {
+        "WBC_count_10e9_L": 9.7,
+        "Hemoglobin_g_dL": 11.7
+      },
+      "cardiac_and_thrombosis_markers": {
+        "NT_proBNP_pg_mL": 1262,
+        "Troponin_ng_mL": 0.07,
+        "D_dimer_ng_mL": 717
+      },
+      "inflammatory_and_infection_markers": {
+        "CRP_mg_L": 54.4,
+        "Procalcitonin_ng_mL": 1.302
+      },
+      "arterial_blood_gas_ABG": {
+        "pH": 7.49,
+        "paO2_mmHg": 70.1,
+        "paCO2_mmHg": 52.0
+      }
+    },
+    "prior_imaging_records": {
+      "has_prior_chest_imaging": true,
+      "last_exam_type": "CT Chest",
+      "last_exam_date_months_ago": 30.3,
+      "prior_radiology_report_summary": "Stable mild to moderate cardiomegaly"
+    }
+  },
+  "_meta": {
+    "gt_findings": [],
+    "primary_profile_used": "default",
+    "rng_seed_source": "md5(image_id) % 2^32"
+  }
+}

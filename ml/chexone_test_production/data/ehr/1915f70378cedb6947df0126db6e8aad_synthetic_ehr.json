@@ -1,0 +1,82 @@
+{
+  "image_id": "1915f70378cedb6947df0126db6e8aad",
+  "historical_ehr_context": {
+    "patient_demographics": {
+      "Patient_age": 81,
+      "age_group": ">80",
+      "sex": "Other/Unknown",
+      "ethnicity": "Caucasian",
+      "bmi_category": "Overweight (25-29.9)"
+    },
+    "vitals_at_triage": {
+      "temperature_celsius": 36.8,
+      "heart_rate_bpm": 114,
+      "respiratory_rate_bpm": 27,
+      "systolic_bp_mmhg": 107,
+      "diastolic_bp_mmhg": 72,
+      "oxygen_saturation_SpO2": 88.4,
+      "supplemental_oxygen": "CPAP/BiPAP"
+    },
+    "lifestyle_and_exposures": {
+      "smoking_status": "Never Smoker",
+      "pack_years": 0,
+      "alcohol_use": "Heavy/Chronic",
+      "occupational_risk": "None Known",
+      "recent_travel_or_exposure": "None"
+    },
+    "medical_history": {
+      "pulmonary_conditions": "None",
+      "cardiovascular_conditions": "Valvular Heart Disease",
+      "systemic_and_immunological_conditions": "None",
+      "oncological_history": "None"
+    },
+    "surgical_history": {
+      "thoracic_and_cardiac_surgeries": "Coronary Artery Bypass Graft (CABG)",
+      "other_relevant_surgeries": "None"
+    },
+    "current_medications": {
+      "relevant_drug_classes": [
+        "Diuretics (e.g., Furosemide)"
+      ]
+    },
+    "current_admission_context": {
+      "setting_and_urgency": "Inpatient Ward (Deterioration/Monitoring)",
+      "chief_complaint": "Non-pleuritic Chest Pain",
+      "symptom_duration_days": 192
+    },
+    "concurrent_laboratory_results": {
+      "hematology": {
+        "WBC_count_10e9_L": 6.8,
+        "Hemoglobin_g_dL": 14.3
+      },
+      "cardiac_and_thrombosis_markers": {
+        "NT_proBNP_pg_mL": 1289,
+        "Troponin_ng_mL": 0.031,
+        "D_dimer_ng_mL": 697
+      },
+      "inflammatory_and_infection_markers": {
+        "CRP_mg_L": 21.4,
+        "Procalcitonin_ng_mL": 0.076
+      },
+      "arterial_blood_gas_ABG": {
+        "pH": 7.37,
+        "paO2_mmHg": 63.0,
+        "paCO2_mmHg": 37.3
+      }
+    },
+    "prior_imaging_records": {
+      "has_prior_chest_imaging": true,
+      "last_exam_type": "Radiograph (CXR)",
+      "last_exam_date_months_ago": 0.7,
+      "prior_radiology_report_summary": "Stable mild to moderate cardiomegaly"
+    }
+  },
+  "_meta": {
+    "gt_findings": [
+      "Aortic enlargement",
+      "Cardiomegaly"
+    ],
+    "primary_profile_used": "Cardiomegaly",
+    "rng_seed_source": "md5(image_id) % 2^32"
+  }
+}

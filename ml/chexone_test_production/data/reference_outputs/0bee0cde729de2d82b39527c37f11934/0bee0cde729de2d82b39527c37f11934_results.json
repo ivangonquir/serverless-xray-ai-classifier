@@ -1,0 +1,182 @@
+{
+  "image_name": "0bee0cde729de2d82b39527c37f11934.dicom",
+  "image_id": "0bee0cde729de2d82b39527c37f11934",
+  "dicom_path": "/home/carlos.gil/projects/CheXOne/data/image/vindr_data/images/0bee0cde729de2d82b39527c37f11934.dicom",
+  "image_dimensions": {
+    "width": 2449,
+    "height": 3026
+  },
+  "metadata": {
+    "rows": 3026,
+    "columns": 2449,
+    "photometric_interpretation": "MONOCHROME2",
+    "patientage": "062Y",
+    "patientsex": "M"
+  },
+  "ground_truth_bboxes": [
+    {
+      "finding": "Aortic enlargement",
+      "bbox_xyxy": [
+        1345,
+        918,
+        1618,
+        1216
+      ],
+      "num_radiologists": 1
+    },
+    {
+      "finding": "Cardiomegaly",
+      "bbox_xyxy": [
+        957,
+        1818,
+        2033,
+        2495
+      ],
+      "num_radiologists": 3
+    },
+    {
+      "finding": "Other lesion",
+      "bbox_xyxy": [
+        220,
+        1919,
+        869,
+        2552
+      ],
+      "num_radiologists": 2
+    },
+    {
+      "finding": "Pleural thickening",
+      "bbox_xyxy": [
+        1198,
+        598,
+        1520,
+        684
+      ],
+      "num_radiologists": 2
+    }
+  ],
+  "report": {
+    "full_output": "**Thinking Process:**  \n1. **Assess Heart Size**: The heart appears normal without signs of enlargement or structural abnormalities on both views examined.  \n\n2. **Evaluate Mediastinal Structures**: Mediastinal contours show no new changes compared to prior images, indicating stability of central structures such as vessels and lymph nodes. All hilar shapes remain symmetric with no evidence of disease processes like tumors or mass lesions.  \n\n3. **Lobar Analysis**: Both lung fields appear clear without infiltrates suggestive of infection (e.g., pneumonia), suggesting no acute respiratory pathology affecting either hemithorax. Pleural surfaces bilaterally confirm no air leaks (pneumothorax) or fluid accumulations (effusions), pointing away from conditions requiring immediate intervention.  \n\nBased on direct observations derived solely from the X-ray, all findings point toward a non-urgent clinical status with no active disease processes identified.  \n\n**Final Answer:**  \n\\boxed{The heart size and mediastinal contours are normal. There is no focal consolidation or pneumothorax. The lungs are clear. There is no pleural effusion.}",
+    "reasoning_trace": "**Thinking Process:**  \n1. **Assess Heart Size**: The heart appears normal without signs of enlargement or structural abnormalities on both views examined.  \n\n2. **Evaluate Mediastinal Structures**: Mediastinal contours show no new changes compared to prior images, indicating stability of central structures such as vessels and lymph nodes. All hilar shapes remain symmetric with no evidence of disease processes like tumors or mass lesions.  \n\n3. **Lobar Analysis**: Both lung fields appear clear without infiltrates suggestive of infection (e.g., pneumonia), suggesting no acute respiratory pathology affecting either hemithorax. Pleural surfaces bilaterally confirm no air leaks (pneumothorax) or fluid accumulations (effusions), pointing away from conditions requiring immediate intervention.  \n\nBased on direct observations derived solely from the X-ray, all findings point toward a non-urgent clinical status with no active disease processes identified.  \n\n**Final Answer:**",
+    "final_answer": "The heart size and mediastinal contours are normal. There is no focal consolidation or pneumothorax. The lungs are clear. There is no pleural effusion."
+  },
+  "grounding": [
+    {
+      "finding": "Aortic enlargement",
+      "source": "gt_label",
+      "prompt": "Locate Aortic enlargement in the CXR.",
+      "raw_response": "<|ref|>Aortic enlargement<|/ref|><|box|>(49,35),(66,51)<|/box|>",
+      "boxes": [
+        {
+          "label": "Aortic enlargement",
+          "norm_coords": [
+            49,
+            35,
+            66,
+            51
+          ],
+          "coord_scale": "0-100%",
+          "pixel_coords": [
+            1200,
+            1059,
+            1616,
+            1543
+          ]
+        }
+      ],
+      "iou_vs_gt": [
+        0.1772
+      ],
+      "degenerate": false
+    },
+    {
+      "finding": "Cardiomegaly",
+      "source": "gt_label",
+      "prompt": "Locate Cardiomegaly in the CXR.",
+      "raw_response": "<|ref|>Cardiomegaly<|/ref|><|box|>(40,65),(80,83)<|/box|>",
+      "boxes": [
+        {
+          "label": "Cardiomegaly",
+          "norm_coords": [
+            40,
+            65,
+            80,
+            83
+          ],
+          "coord_scale": "0-100%",
+          "pixel_coords": [
+            980,
+            1967,
+            1959,
+            2512
+          ]
+        }
+      ],
+      "iou_vs_gt": [
+        0.6938
+      ],
+      "degenerate": false
+    },
+    {
+      "finding": "Other lesion",
+      "source": "gt_label",
+      "prompt": "Locate Other lesion in the CXR.",
+      "raw_response": "<|ref|>Other lesion<|/ref|><|box|>(69,694),(73,700)<|/box|>",
+      "boxes": [
+        {
+          "label": "Other lesion",
+          "norm_coords": [
+            69,
+            694,
+            73,
+            700
+          ],
+          "coord_scale": "0-100%",
+          "pixel_coords": [
+            1690,
+            3025,
+            1788,
+            3025
+          ]
+        }
+      ],
+      "iou_vs_gt": [
+        0.0
+      ],
+      "degenerate": false
+    },
+    {
+      "finding": "Pleural thickening",
+      "source": "gt_label",
+      "prompt": "Locate Pleural thickening in the CXR.",
+      "raw_response": "<|ref|>Pleural thickening<|/ref|><|box|>(24,29),(45,36)<|/box|>",
+      "boxes": [
+        {
+          "label": "Pleural thickening",
+          "norm_coords": [
+            24,
+            29,
+            45,
+            36
+          ],
+          "coord_scale": "0-100%",
+          "pixel_coords": [
+            588,
+            878,
+            1102,
+            1089
+          ]
+        }
+      ],
+      "iou_vs_gt": [
+        0.0
+      ],
+      "degenerate": false
+    }
+  ],
+  "grounding_note": "Model boxes drawn in colour (one per finding, by order in grounding[]). GT boxes (green, [GT] label) are consensus across radiologists from train.csv. Coordinates: model uses 0-100% scale; GT is original DICOM pixel space.",
+  "run_timestamp": "2026-04-22T21:44:28.937435",
+  "model_id": "StanfordAIMI/CheXOne",
+  "output_model_only_image": "/home/carlos.gil/projects/CheXOne/luna_test/outputs/0bee0cde729de2d82b39527c37f11934/0bee0cde729de2d82b39527c37f11934_model_only.png",
+  "output_annotated_image": "/home/carlos.gil/projects/CheXOne/luna_test/outputs/0bee0cde729de2d82b39527c37f11934/0bee0cde729de2d82b39527c37f11934_annotated.png"
+}

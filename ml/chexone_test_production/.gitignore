@@ -1,0 +1,12 @@
+# Ignore model weights (too large for git, transferred via S3)
+model_weights/
+
+# Ignore model tarball
+model.tar.gz
+
+# Ignore inference outputs
+outputs/
+
+# Python
+__pycache__/
+*.pyc

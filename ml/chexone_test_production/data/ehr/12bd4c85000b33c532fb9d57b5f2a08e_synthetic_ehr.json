@@ -1,0 +1,84 @@
+{
+  "image_id": "12bd4c85000b33c532fb9d57b5f2a08e",
+  "historical_ehr_context": {
+    "patient_demographics": {
+      "Patient_age": 40,
+      "age_group": "20-40",
+      "sex": "Female",
+      "ethnicity": "Asian",
+      "bmi_category": "Normal (18.5-24.9)"
+    },
+    "vitals_at_triage": {
+      "temperature_celsius": 38.4,
+      "heart_rate_bpm": 115,
+      "respiratory_rate_bpm": 31,
+      "systolic_bp_mmhg": 94,
+      "diastolic_bp_mmhg": 86,
+      "oxygen_saturation_SpO2": 88.6,
+      "supplemental_oxygen": "Nasal Cannula (1-6L)"
+    },
+    "lifestyle_and_exposures": {
+      "smoking_status": "Never Smoker",
+      "pack_years": 0,
+      "alcohol_use": "Occasional",
+      "occupational_risk": "Organic Dust / Mold (Farming/Avian exposure)",
+      "recent_travel_or_exposure": "Endemic TB Region"
+    },
+    "medical_history": {
+      "pulmonary_conditions": "COPD / Emphysema",
+      "cardiovascular_conditions": "None",
+      "systemic_and_immunological_conditions": "Diabetes Mellitus (Type 1 or 2)",
+      "oncological_history": "None"
+    },
+    "surgical_history": {
+      "thoracic_and_cardiac_surgeries": "None",
+      "other_relevant_surgeries": "None"
+    },
+    "current_medications": {
+      "relevant_drug_classes": [
+        "None"
+      ]
+    },
+    "current_admission_context": {
+      "setting_and_urgency": "Inpatient Ward (Deterioration/Monitoring)",
+      "chief_complaint": "Fever / Chills",
+      "symptom_duration_days": 9
+    },
+    "concurrent_laboratory_results": {
+      "hematology": {
+        "WBC_count_10e9_L": 12.9,
+        "Hemoglobin_g_dL": 12.2
+      },
+      "cardiac_and_thrombosis_markers": {
+        "NT_proBNP_pg_mL": 96,
+        "Troponin_ng_mL": 0.031,
+        "D_dimer_ng_mL": 499
+      },
+      "inflammatory_and_infection_markers": {
+        "CRP_mg_L": 124.5,
+        "Procalcitonin_ng_mL": 3.545
+      },
+      "arterial_blood_gas_ABG": {
+        "pH": 7.42,
+        "paO2_mmHg": 64.9,
+        "paCO2_mmHg": 41.6
+      }
+    },
+    "prior_imaging_records": {
+      "has_prior_chest_imaging": true,
+      "last_exam_type": "CT Chest",
+      "last_exam_date_months_ago": 11.5,
+      "prior_radiology_report_summary": "Stable chronic basilar atelectasis"
+    }
+  },
+  "_meta": {
+    "gt_findings": [
+      "Infiltration",
+      "Nodule/Mass",
+      "Other lesion",
+      "Pulmonary fibrosis"
+    ],
+    "primary_profile_used": "Infiltration",
+    "rng_seed_source": "md5(image_id) % 2^32"
+  }
+}
