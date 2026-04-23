@@ -1,0 +1,84 @@
+{
+  "image_id": "0bee0cde729de2d82b39527c37f11934",
+  "historical_ehr_context": {
+    "patient_demographics": {
+      "Patient_age": 62,
+      "age_group": "61-80",
+      "sex": "Male",
+      "ethnicity": "Hispanic/Latino",
+      "bmi_category": "Overweight (25-29.9)"
+    },
+    "vitals_at_triage": {
+      "temperature_celsius": 36.5,
+      "heart_rate_bpm": 79,
+      "respiratory_rate_bpm": 26,
+      "systolic_bp_mmhg": 130,
+      "diastolic_bp_mmhg": 74,
+      "oxygen_saturation_SpO2": 91.2,
+      "supplemental_oxygen": "Nasal Cannula (1-6L)"
+    },
+    "lifestyle_and_exposures": {
+      "smoking_status": "Current Smoker",
+      "pack_years": 40,
+      "alcohol_use": "Heavy/Chronic",
+      "occupational_risk": "None Known",
+      "recent_travel_or_exposure": "None"
+    },
+    "medical_history": {
+      "pulmonary_conditions": "None",
+      "cardiovascular_conditions": "Congestive Heart Failure (CHF)",
+      "systemic_and_immunological_conditions": "Chronic Kidney Disease (CKD)",
+      "oncological_history": "None"
+    },
+    "surgical_history": {
+      "thoracic_and_cardiac_surgeries": "Coronary Artery Bypass Graft (CABG)",
+      "other_relevant_surgeries": "None"
+    },
+    "current_medications": {
+      "relevant_drug_classes": [
+        "Beta Blockers"
+      ]
+    },
+    "current_admission_context": {
+      "setting_and_urgency": "Inpatient Ward (Deterioration/Monitoring)",
+      "chief_complaint": "Acute Dyspnea",
+      "symptom_duration_days": 122
+    },
+    "concurrent_laboratory_results": {
+      "hematology": {
+        "WBC_count_10e9_L": 6.3,
+        "Hemoglobin_g_dL": 11.4
+      },
+      "cardiac_and_thrombosis_markers": {
+        "NT_proBNP_pg_mL": 3203,
+        "Troponin_ng_mL": 0.15,
+        "D_dimer_ng_mL": 479
+      },
+      "inflammatory_and_infection_markers": {
+        "CRP_mg_L": 19.6,
+        "Procalcitonin_ng_mL": 0.176
+      },
+      "arterial_blood_gas_ABG": {
+        "pH": 7.34,
+        "paO2_mmHg": 76.6,
+        "paCO2_mmHg": 38.4
+      }
+    },
+    "prior_imaging_records": {
+      "has_prior_chest_imaging": false,
+      "last_exam_type": "None",
+      "last_exam_date_months_ago": null,
+      "prior_radiology_report_summary": "No prior studies available"
+    }
+  },
+  "_meta": {
+    "gt_findings": [
+      "Aortic enlargement",
+      "Cardiomegaly",
+      "Other lesion",
+      "Pleural thickening"
+    ],
+    "primary_profile_used": "Cardiomegaly",
+    "rng_seed_source": "md5(image_id) % 2^32"
+  }
+}

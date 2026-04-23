@@ -1,0 +1,109 @@
+{
+  "image_name": "1915f70378cedb6947df0126db6e8aad.dicom",
+  "image_id": "1915f70378cedb6947df0126db6e8aad",
+  "dicom_path": "/home/carlos.gil/projects/CheXOne/data/image/vindr_data/images/1915f70378cedb6947df0126db6e8aad.dicom",
+  "image_dimensions": {
+    "width": 2048,
+    "height": 2500
+  },
+  "metadata": {
+    "rows": 2500,
+    "columns": 2048,
+    "photometric_interpretation": "MONOCHROME2",
+    "pixel_spacing_mm": [
+      0.168,
+      0.168
+    ],
+    "patientsex": "O"
+  },
+  "ground_truth_bboxes": [
+    {
+      "finding": "Aortic enlargement",
+      "bbox_xyxy": [
+        1095,
+        775,
+        1305,
+        1002
+      ],
+      "num_radiologists": 1
+    },
+    {
+      "finding": "Cardiomegaly",
+      "bbox_xyxy": [
+        890,
+        1462,
+        1788,
+        1917
+      ],
+      "num_radiologists": 3
+    }
+  ],
+  "report": {
+    "full_output": "**Thinking Process:**  \n1. **Assess Heart Size**: The heart appears enlarged but maintains consistent dimensions compared to prior views, indicating persistent cardiomegaly without change from previous exams.  \n\n2. **Evaluate Lung Fields**: Both lung fields show no signs of air leaks (pneumothorax), suggesting normal breathing mechanics bilaterally. There is complete absence of disease processes such as infection (focal consolidation) or fluid accumulations (pleural effusion), pointing toward health status free from acute pathological conditions.  \n\nBased on direct observations derived solely from the X-ray image, all abnormalities point toward non-urgent or stable findings with no new concerns requiring immediate intervention.  \n\n**Final Answer:**  \n\\boxed{The cardiac silhouette remains enlarged. The mediastinal contours are normal. There is no focal consolidation or pneumothorax. The lungs are clear. There is no pleural effusion.}",
+    "reasoning_trace": "**Thinking Process:**  \n1. **Assess Heart Size**: The heart appears enlarged but maintains consistent dimensions compared to prior views, indicating persistent cardiomegaly without change from previous exams.  \n\n2. **Evaluate Lung Fields**: Both lung fields show no signs of air leaks (pneumothorax), suggesting normal breathing mechanics bilaterally. There is complete absence of disease processes such as infection (focal consolidation) or fluid accumulations (pleural effusion), pointing toward health status free from acute pathological conditions.  \n\nBased on direct observations derived solely from the X-ray image, all abnormalities point toward non-urgent or stable findings with no new concerns requiring immediate intervention.  \n\n**Final Answer:**",
+    "final_answer": "The cardiac silhouette remains enlarged. The mediastinal contours are normal. There is no focal consolidation or pneumothorax. The lungs are clear. There is no pleural effusion."
+  },
+  "grounding": [
+    {
+      "finding": "Cardiomegaly",
+      "source": "report",
+      "prompt": "Locate Cardiomegaly in the CXR.",
+      "raw_response": "<|ref|>Cardiomegaly<|/ref|><|box|>(40,59),(83,86)<|/box|>",
+      "boxes": [
+        {
+          "label": "Cardiomegaly",
+          "norm_coords": [
+            40,
+            59,
+            83,
+            86
+          ],
+          "coord_scale": "0-100%",
+          "pixel_coords": [
+            819,
+            1475,
+            1700,
+            2150
+          ]
+        }
+      ],
+      "iou_vs_gt": [
+        0.5549
+      ],
+      "degenerate": false
+    },
+    {
+      "finding": "Aortic enlargement",
+      "source": "gt_label",
+      "prompt": "Locate Aortic enlargement in the CXR.",
+      "raw_response": "<|ref|>aortic enlargement<|/ref|><|box|>(49,33),(62,45)<|/box|>",
+      "boxes": [
+        {
+          "label": "aortic enlargement",
+          "norm_coords": [
+            49,
+            33,
+            62,
+            45
+          ],
+          "coord_scale": "0-100%",
+          "pixel_coords": [
+            1004,
+            825,
+            1270,
+            1125
+          ]
+        }
+      ],
+      "iou_vs_gt": [
+        0.321
+      ],
+      "degenerate": false
+    }
+  ],
+  "grounding_note": "Model boxes drawn in colour (one per finding, by order in grounding[]). GT boxes (green, [GT] label) are consensus across radiologists from train.csv. Coordinates: model uses 0-100% scale; GT is original DICOM pixel space.",
+  "run_timestamp": "2026-04-22T22:05:29.223389",
+  "model_id": "StanfordAIMI/CheXOne",
+  "output_model_only_image": "/home/carlos.gil/projects/CheXOne/luna_test/outputs/1915f70378cedb6947df0126db6e8aad/1915f70378cedb6947df0126db6e8aad_model_only.png",
+  "output_annotated_image": "/home/carlos.gil/projects/CheXOne/luna_test/outputs/1915f70378cedb6947df0126db6e8aad/1915f70378cedb6947df0126db6e8aad_annotated.png"
+}

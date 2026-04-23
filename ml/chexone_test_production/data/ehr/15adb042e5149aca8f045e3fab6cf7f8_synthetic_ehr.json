@@ -1,0 +1,79 @@
+{
+  "image_id": "15adb042e5149aca8f045e3fab6cf7f8",
+  "historical_ehr_context": {
+    "patient_demographics": {
+      "Patient_age": 0,
+      "age_group": "<20",
+      "sex": "Male",
+      "ethnicity": "African Descent",
+      "bmi_category": "Overweight (25-29.9)"
+    },
+    "vitals_at_triage": {
+      "temperature_celsius": 36.3,
+      "heart_rate_bpm": 75,
+      "respiratory_rate_bpm": 12,
+      "systolic_bp_mmhg": 173,
+      "diastolic_bp_mmhg": 80,
+      "oxygen_saturation_SpO2": 80.8,
+      "supplemental_oxygen": "Intubated/Mechanically Ventilated"
+    },
+    "lifestyle_and_exposures": {
+      "smoking_status": "Never Smoker",
+      "pack_years": 0,
+      "alcohol_use": "Heavy/Chronic",
+      "occupational_risk": "Beryllium (Aerospace/Electronics)",
+      "recent_travel_or_exposure": "None"
+    },
+    "medical_history": {
+      "pulmonary_conditions": "Bronchiectasis",
+      "cardiovascular_conditions": "None",
+      "systemic_and_immunological_conditions": "Active Immunosuppression (Organ Transplant/Chronic Steroids)",
+      "oncological_history": "Extrapulmonary Malignancy (Breast, Colon, Prostate, Renal, Melanoma)"
+    },
+    "surgical_history": {
+      "thoracic_and_cardiac_surgeries": "None",
+      "other_relevant_surgeries": "Central Venous Catheter / Port-a-Cath Placement"
+    },
+    "current_medications": {
+      "relevant_drug_classes": [
+        "ACE Inhibitors / ARBs (Can cause cough)"
+      ]
+    },
+    "current_admission_context": {
+      "setting_and_urgency": "Inpatient Ward (Deterioration/Monitoring)",
+      "chief_complaint": "Hemoptysis",
+      "symptom_duration_days": 275
+    },
+    "concurrent_laboratory_results": {
+      "hematology": {
+        "WBC_count_10e9_L": 10.3,
+        "Hemoglobin_g_dL": 11.8
+      },
+      "cardiac_and_thrombosis_markers": {
+        "NT_proBNP_pg_mL": 1069,
+        "Troponin_ng_mL": 0.117,
+        "D_dimer_ng_mL": 887
+      },
+      "inflammatory_and_infection_markers": {
+        "CRP_mg_L": 87.0,
+        "Procalcitonin_ng_mL": 2.805
+      },
+      "arterial_blood_gas_ABG": {
+        "pH": 7.5,
+        "paO2_mmHg": 58.8,
+        "paCO2_mmHg": 37.8
+      }
+    },
+    "prior_imaging_records": {
+      "has_prior_chest_imaging": true,
+      "last_exam_type": "Radiograph (CXR)",
+      "last_exam_date_months_ago": 33.3,
+      "prior_radiology_report_summary": "Chronic apical pleural thickening"
+    }
+  },
+  "_meta": {
+    "gt_findings": [],
+    "primary_profile_used": "default",
+    "rng_seed_source": "md5(image_id) % 2^32"
+  }
+}
