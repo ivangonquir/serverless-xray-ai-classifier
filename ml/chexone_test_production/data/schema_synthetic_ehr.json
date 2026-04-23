@@ -1,0 +1,176 @@
+{
+  "image_id": "<string: original VinBigData identifier>",
+  "historical_ehr_context": {
+    "patient_demographics": {
+     “Patient_age”: [int]
+      "age_group": ["<20", "20-40", "41-60", "61-80", ">80"],
+      "ethnicity": ["Caucasian", "African Descent", "Asian", "Hispanic/Latino", "Other/Unknown"],
+      "bmi_category": ["Underweight (<18.5)", "Normal (18.5-24.9)", "Overweight (25-29.9)", "Obese (≥30)"]
+    },
+    "vitals_at_triage": {
+      "temperature_celsius": "<float: 35.0 to 41.0>",
+      "heart_rate_bpm": "<int: 40 to 200>",
+      "respiratory_rate_bpm": "<int: 10 to 50>",
+      "systolic_bp_mmhg": "<int: 70 to 220>",
+      "diastolic_bp_mmhg": "<int: 40 to 120>",
+      "oxygen_saturation_SpO2": "<float: 70.0 to 100.0>",
+      "supplemental_oxygen": ["Room Air", "Nasal Cannula (1-6L)", "Non-Rebreather Mask", "CPAP/BiPAP", "Intubated/Mechanically Ventilated"]
+    },
+    "lifestyle_and_exposures": {
+      "smoking_status": ["Never Smoker", "Former Smoker", "Current Smoker", "E-Cigarette/Vaping User"],
+      "pack_years": "<int: 0 to 150>",
+      "alcohol_use": ["None", "Occasional", "Moderate", "Heavy/Chronic"],
+      "occupational_risk": [
+        "None Known",
+        "Asbestos (Construction/Shipbuilding/Insulation)",
+        "Silica (Mining/Sandblasting)",
+        "Coal Dust (Mining)",
+        "Beryllium (Aerospace/Electronics)",
+        "Organic Dust / Mold (Farming/Avian exposure)",
+        "Chemical Fumes/Welding"
+      ],
+      "recent_travel_or_exposure": ["None", "Endemic TB Region", "Endemic Fungal Region (Histoplasmosis/Coccidioidomycosis)", "Recent Sick Contacts"]
+    },
+    "medical_history": {
+      "pulmonary_conditions": [
+        "None",
+        "Asthma",
+        "COPD / Emphysema",
+        "Interstitial Lung Disease (ILD) / Idiopathic Pulmonary Fibrosis (IPF)",
+        "Bronchiectasis",
+        "Obstructive Sleep Apnea (OSA)",
+        "Prior Tuberculosis (Treated)",
+        "Pulmonary Hypertension",
+        "Sarcoidosis"
+      ],
+      "cardiovascular_conditions": [
+        "None",
+        "Congestive Heart Failure (CHF)",
+        "Coronary Artery Disease (CAD) / Prior MI",
+        "Hypertension",
+        "Atrial Fibrillation",
+        "Valvular Heart Disease",
+        "History of Deep Vein Thrombosis (DVT) / Pulmonary Embolism (PE)",
+        "Thoracic Aortic Aneurysm"
+      ],
+      "systemic_and_immunological_conditions": [
+        "None",
+        "Diabetes Mellitus (Type 1 or 2)",
+        "Chronic Kidney Disease (CKD)",
+        "Liver Cirrhosis",
+        "Rheumatoid Arthritis",
+        "Systemic Lupus Erythematosus (SLE)",
+        "HIV / AIDS",
+        "Active Immunosuppression (Organ Transplant/Chronic Steroids)"
+      ],
+      "oncological_history": [
+        "None",
+        "Primary Lung Cancer (Active)",
+        "Primary Lung Cancer (Resected/Remission)",
+        "Extrapulmonary Malignancy (Breast, Colon, Prostate, Renal, Melanoma)",
+        "Lymphoma / Leukemia",
+        "History of Thoracic Radiation Therapy"
+      ]
+    },
+    "surgical_history": {
+      "thoracic_and_cardiac_surgeries": [
+        "None",
+        "Coronary Artery Bypass Graft (CABG)",
+        "Valve Replacement/Repair",
+        "Pacemaker / ICD Implantation",
+        "Lobectomy / Wedge Resection",
+        "Pneumonectomy",
+        "Pleurodesis / VATS",
+        "Heart or Lung Transplant"
+      ],
+      "other_relevant_surgeries": [
+        "None",
+        "Recent General Surgery (<30 days, high DVT/atelectasis risk)",
+        "Splenectomy",
+        "Mastectomy",
+        "Central Venous Catheter / Port-a-Cath Placement",
+        "Enteric Feeding Tube Placement (NG/PEG)"
+      ]
+    },
+    "current_medications": {
+      "relevant_drug_classes": [
+        "None",
+        "Diuretics (e.g., Furosemide)",
+        "ACE Inhibitors / ARBs (Can cause cough)",
+        "Beta Blockers",
+        "Anticoagulants (e.g., Warfarin, DOACs, Heparin)",
+        "Antiplatelets",
+        "Inhaled Corticosteroids / Bronchodilators",
+        "Systemic Corticosteroids",
+        "Chemotherapy / Targeted Biologics",
+        "Amiodarone (Risk of pulmonary toxicity)",
+        "Antibiotics / Antifungals (Active treatment)"
+      ]
+    },
+    "current_admission_context": {
+      "setting_and_urgency": [
+        "Outpatient / Routine Screening",
+        "Pre-operative Clearance",
+        "Emergency Department (Acute Triage)",
+        "Inpatient Ward (Deterioration/Monitoring)",
+        "ICU (Critical Care)"
+      ],
+      "chief_complaint": [
+        "Asymptomatic",
+        "Acute Dyspnea",
+        "Progressive Exertional Dyspnea",
+        "Orthopnea / Paroxysmal Nocturnal Dyspnea (PND)",
+        "Pleuritic Chest Pain",
+        "Non-pleuritic Chest Pain",
+        "Acute Cough (Dry or Productive)",
+        "Chronic Cough (>8 weeks)",
+        "Hemoptysis",
+        "Fever / Chills",
+        "Unintentional Weight Loss / Night Sweats",
+        "Blunt / Penetrating Chest Trauma",
+        "Post-procedural / Device Placement Check (e.g., ETT, CVC, NGT)"
+      ],
+      "symptom_duration_days": "<int: 0 (Acute) to 365+ (Chronic)>"
+    },
+    "concurrent_laboratory_results": {
+      "hematology": {
+        "WBC_count_10e9_L": "<float: 4.0-11.0 (Normal), >11.0 (Leukocytosis/Infection), <4.0 (Leukopenia)>",
+        "Hemoglobin_g_dL": "<float: 7.0 to 18.0>"
+      },
+      "cardiac_and_thrombosis_markers": {
+        "NT_proBNP_pg_mL": "<int: <125 (Normal), >400 (Suggests Heart Failure)>",
+        "Troponin_ng_mL": "<float: Normal or Elevated (Myocardial injury)>",
+        "D_dimer_ng_mL": "<int: <500 (Normal), >500 (Elevated, rule out PE)>"
+      },
+      "inflammatory_and_infection_markers": {
+        "CRP_mg_L": "<float: <5.0 (Normal), >10.0 (Active Inflammation/Infection)>",
+        "Procalcitonin_ng_mL": "<float: <0.1 (Viral/Normal), >0.25 (Bacterial Infection likely)>"
+      },
+      "arterial_blood_gas_ABG": {
+        "pH": "<float: 7.10 to 7.60>",
+        "paO2_mmHg": "<float: 50.0 to 100.0>",
+        "paCO2_mmHg": "<float: 20.0 to 80.0>"
+      }
+    },
+    "prior_imaging_records": {
+      "has_prior_chest_imaging": "<boolean: true/false>",
+      "last_exam_type": ["Radiograph (CXR)", "CT Chest", "None"],
+      "last_exam_date_months_ago": "<float: 0.1 to 120 (or null)>",
+      "prior_radiology_report_summary": [
+        "No prior studies available",
+        "Normal chest radiograph",
+        "Stable mild to moderate cardiomegaly",
+        "Known uncoiled/calcified thoracic aorta",
+        "Stable calcified granuloma / solitary pulmonary nodule (<6mm)",
+        "Stable ground-glass opacities / fibrotic changes",
+        "Chronic apical pleural thickening",
+        "Small to moderate pleural effusion (Right/Left/Bilateral)",
+        "Known biapical emphysematous bullae",
+        "Stable chronic basilar atelectasis",
+        "Hardware: Pacemaker/ICD leads intact",
+        "Hardware: CABG sternotomy wires intact",
+        "Prior pneumothorax (resolved)"
+      ]
+    }
+  }
+}
