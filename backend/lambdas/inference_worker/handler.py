@@ -17,8 +17,11 @@ Flow per SQS message:
   8. Push the result to the clinician's browser via WebSocket (FR-6.2).
 """
 
+import io
 import json
 import os
+import tarfile
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -88,7 +91,7 @@ def _process_record(sqs_record: dict):
 
 def _run_pipeline(job_id: str, patient_id: str, s3_key: str, connection_id: str):
     # ── Step 1: Run image classifier ────────────────────────────────────
-    image_prediction = _invoke_sagemaker(s3_key)
+    image_prediction = _parse_chexone_output(_invoke_sagemaker(s3_key))
 
     # ── Step 2: Fetch clinical risk factors ─────────────────────────────
     patient = _get_patient(patient_id)
@@ -107,7 +110,8 @@ def _run_pipeline(job_id: str, patient_id: str, s3_key: str, connection_id: str)
     status, status_label = _classify_risk(luna_risk_score)
     nodules = image_prediction.get("nodulesDetected", [])
     clinical_summary = _build_clinical_summary(
-        luna_risk_score, status_label, nodules, clinical_factors
+        luna_risk_score, status_label, nodules, clinical_factors,
+        report_text=image_prediction.get("reportText", ""),
     )
 
     now = datetime.now(timezone.utc).isoformat()
@@ -158,31 +162,169 @@ def _run_pipeline(job_id: str, patient_id: str, s3_key: str, connection_id: str)
     })
 
 
-# ── SageMaker inference ───────────────────────────────────────────────────
+# ── SageMaker async inference ─────────────────────────────────────────────
 
 def _invoke_sagemaker(s3_key: str) -> dict:
     """
-    Downloads the image/DICOM from S3 and invokes the LUNA classifier.
+    Submits the DICOM to the CheXOne async SageMaker endpoint and waits for
+    the result.
 
-    The classifier (ml/inference/inference.py) is expected to return JSON:
-    {
-        "malignancyScore": 0-100,      # probability of malignancy
-        "nodulesDetected": [           # list of detected nodules
-            {"x": ..., "y": ..., "size_mm": ..., "confidence": ...}
-        ],
-        "label": "BENIGN" | "MALIGNANT" | "INDETERMINATE"
-    }
+    Flow:
+      1. Pass the existing S3 URI directly as InputLocation (no re-upload).
+      2. invoke_endpoint_async() returns OutputLocation immediately — the
+         endpoint writes a tar.gz there once inference completes.
+      3. Poll that S3 path until the file appears (up to 5 minutes).
+      4. Extract {image_id}_results.json from the tar.gz and return it.
+
+    The returned dict has the structure produced by chexone_test_production:
+      {
+        "image_id": "...",
+        "report":   {"final_answer": "...", ...},
+        "grounding": [{"finding": "...", "boxes": [...], "degenerate": bool}],
+        ...
+      }
     """
-    obj = s3_client.get_object(Bucket=DICOM_BUCKET, Key=s3_key)
-    image_bytes = obj["Body"].read()
-    content_type = obj.get("ContentType", "application/octet-stream")
+    input_location = f"s3://{DICOM_BUCKET}/{s3_key}"
 
-    sm_response = sagemaker_runtime.invoke_endpoint(
+    response = sagemaker_runtime.invoke_endpoint_async(
         EndpointName=SAGEMAKER_ENDPOINT,
-        ContentType=content_type,
-        Body=image_bytes,
+        InputLocation=input_location,
+        ContentType="application/dicom",
+        Accept="application/x-tar",
     )
-    return json.loads(sm_response["Body"].read())
+
+    output_location = response["OutputLocation"]
+    failure_location = response.get("FailureLocation", "")
+
+    return _poll_async_result(output_location, failure_location)
+
+
+def _poll_async_result(output_location: str, failure_location: str, timeout_seconds: int = 300) -> dict:
+    """Polls S3 until the async endpoint writes its output tar.gz, then parses it."""
+    out_bucket, out_key = _parse_s3_uri(output_location)
+    deadline = time.time() + timeout_seconds
+    delay = 10
+
+    while time.time() < deadline:
+        # Check for failure output first
+        if failure_location:
+            fail_bucket, fail_key = _parse_s3_uri(failure_location)
+            try:
+                s3_client.head_object(Bucket=fail_bucket, Key=fail_key)
+                raise RuntimeError("CheXOne async inference failed — check SageMaker failure output")
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] not in ("404", "NoSuchKey"):
+                    raise
+
+        # Check for success output
+        try:
+            s3_client.head_object(Bucket=out_bucket, Key=out_key)
+            return _extract_results_json(out_bucket, out_key)
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] not in ("404", "NoSuchKey"):
+                raise
+
+        time.sleep(delay)
+        delay = min(delay * 1.5, 30)
+
+    raise TimeoutError(f"CheXOne async inference timed out after {timeout_seconds}s")
+
+
+def _extract_results_json(bucket: str, key: str) -> dict:
+    """Downloads the output tar.gz from S3 and returns the _results.json contents."""
+    obj = s3_client.get_object(Bucket=bucket, Key=key)
+    tar_bytes = io.BytesIO(obj["Body"].read())
+
+    with tarfile.open(fileobj=tar_bytes, mode="r:gz") as tar:
+        for member in tar.getmembers():
+            if member.name.endswith("_results.json"):
+                f = tar.extractfile(member)
+                if f is not None:
+                    return json.loads(f.read())
+
+    raise ValueError(f"No _results.json found in SageMaker output at s3://{bucket}/{key}")
+
+
+def _parse_s3_uri(uri: str) -> tuple[str, str]:
+    """Splits 's3://bucket/key' into ('bucket', 'key')."""
+    without_prefix = uri[len("s3://"):]
+    bucket, key = without_prefix.split("/", 1)
+    return bucket, key
+
+
+# ── CheXOne output parser ─────────────────────────────────────────────────
+
+_HIGH_RISK_TERMS = {
+    "malignant", "carcinoma", "cancer", "metastasis", "mass", "tumor", "adenocarcinoma",
+}
+_MEDIUM_RISK_TERMS = {
+    "nodule", "opacity", "consolidation", "infiltrate", "lesion",
+    "effusion", "pneumonia", "atelectasis", "pleural",
+}
+
+def _parse_chexone_output(results: dict) -> dict:
+    """
+    Converts the raw CheXOne results.json into the format expected by
+    _run_pipeline:
+      {
+        "malignancyScore": float (0-100),
+        "nodulesDetected": list of confirmed findings with bounding boxes,
+        "label":           "BENIGN" | "INDETERMINATE" | "MALIGNANT",
+        "reportText":      str (full report for clinical summary),
+        "imageId":         str,
+      }
+    """
+    report_text = (results.get("report") or {}).get("final_answer", "")
+    grounding = results.get("grounding") or []
+
+    malignancy_score = _derive_malignancy_score(report_text.lower(), grounding)
+
+    # Map each confirmed (non-degenerate) grounding finding to a nodule-like entry
+    nodules_detected = [
+        {
+            "finding": g["finding"],
+            "boxes": g.get("boxes", []),
+            "confidence": 0.9 if not g.get("degenerate") else 0.3,
+        }
+        for g in grounding
+        if not g.get("degenerate") and g.get("boxes")
+    ]
+
+    if malignancy_score >= 70:
+        label = "MALIGNANT"
+    elif malignancy_score >= 40:
+        label = "INDETERMINATE"
+    else:
+        label = "BENIGN"
+
+    return {
+        "malignancyScore": malignancy_score,
+        "nodulesDetected": nodules_detected,
+        "label": label,
+        "reportText": report_text,
+        "imageId": results.get("image_id", ""),
+    }
+
+
+def _derive_malignancy_score(report_text_lower: str, grounding: list) -> float:
+    """
+    Derives a 0-100 malignancy score from the CheXOne report text and
+    grounding results.
+
+    Text signal (up to 60 pts): presence of high- or medium-risk terms.
+    Grounding signal (up to 40 pts): each confirmed non-degenerate finding
+    adds 10 pts, reflecting spatial evidence of abnormality.
+    """
+    text_score = 0.0
+    if any(t in report_text_lower for t in _HIGH_RISK_TERMS):
+        text_score = 60.0
+    elif any(t in report_text_lower for t in _MEDIUM_RISK_TERMS):
+        text_score = 30.0
+
+    confirmed = [g for g in grounding if not g.get("degenerate") and g.get("boxes")]
+    grounding_score = min(len(confirmed) * 10, 40.0)
+
+    return min(round(text_score + grounding_score, 1), 100.0)
 
 
 # ── Multimodal fusion (FR-4.2) ────────────────────────────────────────────
@@ -246,21 +388,25 @@ def _build_clinical_summary(
     label: str,
     nodules: list,
     clinical_factors: dict,
+    report_text: str = "",
 ) -> str:
     nodule_count = len(nodules)
     age = clinical_factors.get("age", "unknown")
     smoking = clinical_factors.get("smokingHistory", "unknown")
     nodule_text = (
-        f"{nodule_count} pulmonary nodule(s) detected"
+        f"{nodule_count} finding(s) detected"
         if nodule_count
-        else "No nodules detected"
+        else "No findings detected"
     )
-    return (
+    summary = (
         f"LUNA Risk Score: {score}/100 ({label}). "
         f"{nodule_text}. "
         f"Patient profile: age {age}, smoking history: {smoking}. "
         f"Clinical review recommended."
     )
+    if report_text:
+        summary += f" Model report: {report_text}"
+    return summary
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────

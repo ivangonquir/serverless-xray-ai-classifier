@@ -136,13 +136,13 @@ class LambdaStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_11,
             code=lambda_.Code.from_asset("../backend/lambdas/inference_worker"),
             handler="handler.lambda_handler",
-            timeout=Duration.seconds(300),  # Accommodates SageMaker cold starts
+            timeout=Duration.seconds(360),  # 300s poll window + 60s headroom
             memory_size=1024,
             environment={
                 "PATIENTS_TABLE": storage_stack.patients_table.table_name,
                 "DIAGNOSTIC_RESULTS_TABLE": storage_stack.diagnostic_results_table.table_name,
                 "DICOM_BUCKET": storage_stack.dicom_bucket.bucket_name,
-                "SAGEMAKER_ENDPOINT": sagemaker_stack.endpoint_name,
+                "SAGEMAKER_ENDPOINT": "chexone-async",  # ML team deploys this endpoint independently
                 "WEBSOCKET_ENDPOINT": ws_mgmt,
             },
         )
@@ -151,10 +151,10 @@ class LambdaStack(Stack):
         storage_stack.dicom_bucket.grant_read(inference_fn)
         storage_stack.connections_table.grant_read_data(inference_fn)
         storage_stack.diagnostic_queue.grant_consume_messages(inference_fn)
-        # Call the LUNA classifier endpoint
+        # Call the CheXOne async classifier endpoint
         inference_fn.add_to_role_policy(
             iam.PolicyStatement(
-                actions=["sagemaker:InvokeEndpoint"],
+                actions=["sagemaker:InvokeEndpointAsync"],
                 resources=["*"],
             )
         )

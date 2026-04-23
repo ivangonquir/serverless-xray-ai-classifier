@@ -164,28 +164,54 @@ def _get_chat_history(patient_id: str, user_id: str):
 
 # ── OpenSearch RAG retrieval ──────────────────────────────────────────────
 
+def _get_embedding(text: str) -> list:
+    """Generates a 1024-dim embedding via Amazon Titan Embed Text v2."""
+    try:
+        body = json.dumps({
+            "inputText": text[:8000],
+            "dimensions": 1024,
+            "normalize": True,
+        })
+        response = bedrock.invoke_model(
+            modelId="amazon.titan-embed-text-v2:0",
+            body=body,
+            contentType="application/json",
+            accept="application/json",
+        )
+        embedding = json.loads(response["body"].read()).get("embedding")
+        if isinstance(embedding, list) and len(embedding) == 1024:
+            return embedding
+        return []
+    except Exception as exc:
+        print(f"Embedding generation failed: {exc}")
+        return []
+
+
 def _search_opensearch(query_text: str, top_k: int = 5) -> list[dict]:
     """
-    Sends a multi-match query to the OpenSearch luna-docs index.
-    The ML team populates this index with MIMIC-CXR reports, PubMed papers,
-    and Fleischner Society guidelines.
+    Sends a KNN vector query to the OpenSearch luna-docs index.
+    The ML team indexes documents with fields: text, source, embedding (1024-dim).
 
     Returns a list of dicts: [{title, excerpt, source}]
     """
     if not OPENSEARCH_ENDPOINT:
         return []
 
+    embedding = _get_embedding(query_text)
+    if not embedding:
+        return []
+
     search_body = json.dumps({
+        "size": top_k,
         "query": {
-            "multi_match": {
-                "query": query_text,
-                "fields": ["title^2", "content", "abstract"],
-                "type": "best_fields",
-                "fuzziness": "AUTO",
+            "knn": {
+                "embedding": {
+                    "vector": embedding,
+                    "k": top_k,
+                }
             }
         },
-        "size": top_k,
-        "_source": ["title", "content", "abstract", "source", "doi"],
+        "_source": ["text", "source"],
     }).encode("utf-8")
 
     url = f"https://{OPENSEARCH_ENDPOINT}/{OPENSEARCH_INDEX}/_search"
@@ -210,12 +236,14 @@ def _search_opensearch(query_text: str, top_k: int = 5) -> list[dict]:
 
         docs = []
         for hit in result.get("hits", {}).get("hits", []):
+            if hit.get("_score", 0) < 0.3:
+                continue
             src = hit.get("_source", {})
-            content = src.get("content") or src.get("abstract") or ""
+            text = src.get("text", "")
             docs.append({
-                "title": src.get("title", "Untitled"),
-                "excerpt": content[:300] + "..." if len(content) > 300 else content,
-                "source": src.get("source") or src.get("doi", ""),
+                "title": src.get("source", "Medical Literature"),
+                "excerpt": text[:300] + "..." if len(text) > 300 else text,
+                "source": src.get("source", ""),
             })
         return docs
     except Exception as exc:

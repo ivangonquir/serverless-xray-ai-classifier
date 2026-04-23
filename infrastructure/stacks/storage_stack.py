@@ -44,7 +44,7 @@ class StorageStack(Stack):
         self.diagnostic_queue = sqs.Queue(
             self, "LunaDiagnosticQueue",
             queue_name="luna-diagnostic-queue",
-            visibility_timeout=Duration.seconds(300),
+            visibility_timeout=Duration.seconds(2160),  # 6× Lambda timeout (360s)
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=dlq,

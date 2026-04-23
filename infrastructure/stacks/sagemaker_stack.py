@@ -55,8 +55,10 @@ class SageMakerStack(Stack):
                 ),
             ],
         )
-        # Allow SageMaker to read the trained model artifact from S3
-        grant = storage_stack.dicom_bucket.grant_read(self.sagemaker_role)
+        # Read: model artifact + input DICOMs
+        storage_stack.dicom_bucket.grant_read(self.sagemaker_role)
+        # Write: async endpoint output tar.gz written to chexone/outputs/
+        storage_stack.dicom_bucket.grant_write(self.sagemaker_role)
 
         # ── Conditional endpoint deployment ─────────────────────────────
         model_artifact_uri = self.node.try_get_context("model_artifact_uri")
