@@ -8,7 +8,10 @@ from aws_cdk import (
     aws_ssm as ssm,
     CfnOutput,
 )
+from aws_cdk import Fn
+
 from constructs import Construct
+from aws_cdk import aws_lambda_python_alpha as lambda_python
 
 from stacks.storage_stack import StorageStack
 from stacks.websocket_stack import WebSocketStack
@@ -38,27 +41,29 @@ class LambdaStack(Stack):
 
         ws_api = websocket_stack.api
         ws_mgmt = websocket_stack.websocket_management_endpoint
-
+        frontend_url = Fn.import_value("LunaFrontendURL")
+        allowed_origins = f"{frontend_url},http://localhost:3000"
         # ── 1. Auth Handler ──────────────────────────────────────────────
         # POST /auth/login  — validates credentials, issues session token
         # POST /auth/logout — invalidates session
         # POST /auth/seed   — creates initial test users (dev only)
-        self.auth_fn = lambda_.Function(
+        self.auth_fn = lambda_python.PythonFunction(
             self, "LunaAuthHandler",
+            entry="../backend/lambdas/auth_handler",
+            index="handler.py",
+            handler="lambda_handler",
             runtime=lambda_.Runtime.PYTHON_3_11,
-            code=lambda_.Code.from_asset("../backend/lambdas/auth_handler"),
-            handler="handler.lambda_handler",
             timeout=Duration.seconds(10),
             memory_size=256,
             environment={
                 "USERS_TABLE": storage_stack.users_table.table_name,
                 "SESSIONS_TABLE": storage_stack.sessions_table.table_name,
                 "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
-                # HMAC key for password hashing — override in SSM/Secrets Manager
-                # for production deployments
-                "PASSWORD_SECRET": "luna-dev-secret-change-in-production",
+                "SECRET_NAME": storage_stack.password_secret.secret_name,
+                "ALLOWED_ORIGINS": allowed_origins,
             },
         )
+        storage_stack.password_secret.grant_read(self.auth_fn)
         storage_stack.users_table.grant_read_write_data(self.auth_fn)
         storage_stack.sessions_table.grant_read_write_data(self.auth_fn)
         storage_stack.audit_log_table.grant_write_data(self.auth_fn)
