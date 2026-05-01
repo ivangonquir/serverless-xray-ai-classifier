@@ -36,7 +36,7 @@ ccbda_project/
 - Node.js 18+
 - AWS CLI configured (`aws configure`)
 - AWS CDK CLI (`npm install -g aws-cdk`)
-
+- Docker – The deployment now requires Docker to be installed and running because The `auth_handler` Lambda uses `aws-lambda-python-alpha.PythonFunction`, which automatically installs Python dependencies (e.g., `bcrypt`) inside a Lambda‑compatible Docker container duri
 ### Install dependencies
 
 ```bash
