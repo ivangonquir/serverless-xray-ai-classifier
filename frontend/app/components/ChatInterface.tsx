@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {login} from "@/lib/auth";
 
 // ============================================================
 // TEMPORARY / MOCK DATA — REMOVE WHEN BACKEND IS WIRED UP
@@ -10,7 +11,13 @@ const STATIC_GREETING = {
   id: "static-greeting-remove-me",
   role: "assistant" as const,
   content:
-    "Good morning, Doctor. I'm LUNA, your clinical decision support assistant. You can ask me about a specific patient's history, run population-level queries across the database, or request a diagnostic report for a patient. How can I help you today?",
+          "Good morning, Doctor. I'm LUNA, your clinical decision support assistant.\n\n" +
+          "I can help you review a patient’s case, interpret diagnostic reports, and suggest next steps based on the available clinical information.\n\n" +
+          "You can:\n\n" +
+          "- Ask about a specific patient\n" +
+          "- Share a report or findings for interpretation\n" +
+          "- Or discuss a clinical case for guidance on next actions\n\n" +
+          "How would you like to proceed today?",
 };
 // ============================================================
 
@@ -53,6 +60,63 @@ export default function ChatInterface() {
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+
+    // add temporary loading message (optional but recommended)
+    const loadingId = crypto.randomUUID();
+
+    setMessages((prev) => [...prev,
+        {
+          id: loadingId,
+          role: "assistant",
+          content: "LUNA is thinking...",
+        },
+    ]);
+
+    /*
+    try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/query`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query: trimmed,
+            // if we already store selected patient:
+            patientId: selectedPatientId || null,
+            queryType: selectedPatientId ? "patient" : "population",
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Backend error");
+        }
+
+        const data = await res.json();
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === loadingId
+              ? {
+                  ...m,
+                  content: data.response, // <- from _handle_query we call _call_llm
+                }
+              : m
+          )
+        );
+    } catch (err) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === loadingId
+              ? {
+                  ...m,
+                  content:
+                    "Error: Unable to reach LUNA backend. Please try again.",
+                }
+              : m
+          )
+        );
+    }
+    */
 
     // TODO: replace with real API call to backend (RAG / LLM endpoint).
     // For now, stub an assistant echo so the UI feels alive.
@@ -158,7 +222,9 @@ function MessageBubble({ message }: { message: Message }) {
             : "border border-steel/50 bg-midnight/60 text-ice"
         }`}
       >
-        {message.content}
+        <div className="whitespace-pre-line">
+          {message.content}
+        </div>
       </div>
     </div>
   );

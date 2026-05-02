@@ -23,11 +23,13 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
+from boto3.dynamodb.conditions import Key
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -63,7 +65,23 @@ def lambda_handler(event, context):
     user_id = (event.get("requestContext", {}).get("authorizer") or {}).get("userId", "unknown")
 
     if method == "POST" and path.endswith("/query"):
-        return _handle_query(event, user_id)
+        body = _parse_body(event)
+        query_text = (body.get("query") or "").strip()
+
+        if not query_text:
+            return _resp(400, {"error": "query is required"})
+
+        # We only pass query text
+        result = _handle_query(query_text, user_id)
+
+        return _resp(200, {
+            "response": result,
+            "userId": user_id,
+        })
+        # Maybe it's better for the GET case to also be handled here
+        # Doing so we can avoid doing this logic in the frontend
+
+        #return _handle_query(event, user_id)
     if method == "GET" and path.endswith("/chat"):
         return _get_chat_history(path_params.get("patientId", ""), user_id)
 
@@ -444,3 +462,187 @@ def _resp(status: int, body: dict) -> dict:
         "headers": CORS,
         "body": json.dumps(body, default=str),
     }
+
+# -- Asking for a patient? ---------------------------------------------------------
+
+# Currently can't handle more than one patient
+def _extract_patient_id(text: str):
+    """
+    Extracts the patient ID from text.
+    Example:
+    "Patient ID: 000123. What is the current status?" -> "000123"
+    """
+    match = re.search(r"patient\s*id\s*[:\-]?\s*(\d+)", text, re.IGNORECASE)
+    return match.group(1) if match else None
+def _patient_exists(patient_id: str):
+    """
+    Check existence in PATIENTS table.
+    """
+    try:
+        response = patients_table.get_item(
+            Key={"patientId": patient_id}
+        )
+        return "Item" in response
+    except Exception as e:
+        print("❌ DynamoDB error:", e)
+        return False
+def _get_valid_patient_id(text: str):
+    patient_id = _extract_patient_id(text)
+
+    if not patient_id:
+        return None
+
+    if not _patient_exists(patient_id):
+        return None
+
+    return patient_id
+
+# -- Intent detection --------------------------------------------------------------
+
+def _detect_intent(text: str):
+    text = text.lower()
+
+    if any(k in text for k in ["history", "previous", "earlier", "summary"]):
+        return "history"
+
+    if any(k in text for k in ["status", "current", "condition"]):
+        return "status"
+
+    return "general"
+
+# -- Query analysis ---------------------------------------------------------------
+
+def _analyze_query(text: str):
+    patient_id = _get_valid_patient_id(text)
+    intent = _detect_intent(text)
+
+    # Asking about a patient (status) or Retrieving a patient's chat history (history)
+    if patient_id:
+        query_type = "patient"
+    # Population-level analytics (general)
+    else:
+        query_type = "population"
+
+    return {
+        "type": query_type,
+        "patient_id": patient_id,
+        "intent": intent
+    }
+
+# -- Routing layer ----------------------------------------------------------------
+
+def _route_query(query_text: str):
+    analysis = _analyze_query(query_text)
+
+    if analysis["type"] == "patient":
+        return _handle_patient_query(
+            query_text,
+            analysis["patient_id"],
+            analysis["intent"]
+        )
+    else:
+        return _handle_population_query(
+            query_text,
+            analysis["intent"]
+        )
+
+# -- Build RAG context ----------------------------------------------------------------
+
+def _build_rag_context(query_text: str):
+    rag_docs = _search_opensearch(query_text, top_k=3)
+
+    if not rag_docs:
+        return ""
+
+    lines = ["## Relevant Medical Literature (use only if helpful)"]
+
+    for i, d in enumerate(rag_docs):
+        lines.append(f"[{i+1}] {d['title']}: {d['excerpt']}")
+
+    return "\n".join(lines)
+
+# -- Patient handler --------------------------------------------------------------
+
+def _handle_patient_query(query_text: str, patient_id: str, intent: str):
+
+    context_parts = []
+
+    # 1. RAG
+    rag_context = _build_rag_context(query_text)
+    if rag_context:
+        context_parts.append(rag_context)
+
+    # 2. Patient structured context
+    patient_context = _build_patient_context(patient_id)
+    if patient_context:
+        context_parts.append(patient_context)
+
+    # 3. Chat history (only if needed)
+    if intent == "history":
+        history_resp = chat_history_table.query(
+            KeyConditionExpression=Key("patientId").eq(patient_id),
+            ScanIndexForward=False,
+            Limit=6
+        )
+        history = history_resp.get("Items", [])
+
+        context_parts.append(
+            "## Recent Chat History\n" +
+            json.dumps(history)
+        )
+
+    context_text = "\n\n".join(context_parts)
+
+    system_prompt = (
+        "You are LUNA, a clinical decision support assistant.\n"
+        "You may use external medical literature if relevant.\n"
+        "Prefer patient-specific data when available.\n"
+        "Be concise and structured.\n"
+        "Do not hallucinate medical facts."
+    )
+
+    return _call_llm(system_prompt, context_text, query_text)
+
+# -- Population handler -----------------------------------------------------------
+
+def _handle_population_query(query_text: str, intent: str):
+
+    context_parts = []
+
+    # 1. RAG
+    rag_context = _build_rag_context(query_text)
+    if rag_context:
+        context_parts.append(rag_context)
+
+    # 2. Population analytics
+    population_context = _build_population_context(query_text)
+    if population_context:
+        context_parts.append(population_context)
+
+    context_text = "\n\n".join(context_parts)
+
+    system_prompt = (
+        "You are LUNA, a clinical decision support assistant.\n"
+        "Use hospital data and medical literature when relevant.\n"
+        "Be concise and structured.\n"
+        "Do not hallucinate medical facts."
+    )
+
+    return _call_llm(system_prompt, context_text, query_text)
+
+# -- New Query handler -----------------------------------------------------------
+
+def _handle_query(query_text: str, user_id: str):
+    analysis = _analyze_query(query_text)
+
+    if analysis["type"] == "patient":
+        return _handle_patient_query(
+            query_text,
+            analysis["patient_id"],
+            analysis["intent"]
+        )
+
+    return _handle_population_query(
+        query_text,
+        analysis["intent"]
+    )

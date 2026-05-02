@@ -94,6 +94,8 @@ def retrieve_relevant_chunks(query, top_k=3):
 
         hits = response["hits"]["hits"]
 
+        print(hits)
+
         return [
             h["_source"]["text"]
             for h in hits

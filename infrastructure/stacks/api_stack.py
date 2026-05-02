@@ -169,5 +169,6 @@ class ApiStack(Stack):
         CfnOutput(
             self, "ApiUrl",
             value=api.url,
+            export_name="LunaApiUrl",
             description="LUNA REST API base URL — set as NEXT_PUBLIC_API_URL in frontend .env",
         )

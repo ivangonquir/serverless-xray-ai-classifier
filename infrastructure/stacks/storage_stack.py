@@ -11,7 +11,7 @@ from aws_cdk import (
     CfnOutput,
 )
 from constructs import Construct
-
+from aws_cdk import aws_secretsmanager as secretsmanager
 
 class StorageStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs):
@@ -206,3 +206,13 @@ class StorageStack(Stack):
         CfnOutput(self, "DicomBucketName", value=self.dicom_bucket.bucket_name)
         CfnOutput(self, "DiagnosticQueueUrl", value=self.diagnostic_queue.queue_url)
         CfnOutput(self, "OpenSearchEndpoint", value=self.opensearch_domain.domain_endpoint)
+
+        # ── Secret Manager ──────────────────────────────────────────────────────
+        self.password_secret = secretsmanager.Secret(self, "LunaPasswordSecret",
+                                                     secret_name="lunachat",
+                                                     description="HMAC salt for password hashing",
+                                                     generate_secret_string=secretsmanager.SecretStringGenerator(
+                                                         secret_string_template='{"salt": "change-me-in-console"}',
+                                                         generate_string_key="salt"
+                                                     )
+                                                     )
