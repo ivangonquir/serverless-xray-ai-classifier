@@ -34,3 +34,5 @@ Thumbs.db
 .idea/
 
 *.pdf
+
+lab_serverless_user_accessKeys.csv

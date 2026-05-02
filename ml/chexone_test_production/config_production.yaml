@@ -32,18 +32,17 @@ aws:
   region: "eu-west-1"
 
   # ── S3 ──────────────────────────────────────────────────────────────────────
-  s3_bucket: "<YOUR_S3_BUCKET>"
+  s3_bucket: "luna-dicom-113627992593"
   s3_prefix_inputs: "chexone/inputs"         # uploaded DICOMs land here
   s3_prefix_outputs: "chexone/outputs"       # async endpoint writes here
   s3_prefix_model: "chexone/model"           # model.tar.gz location
 
   # ── ECR ─────────────────────────────────────────────────────────────────────
-  ecr_repository: "<YOUR_ECR_REPO_NAME>"     # e.g. "chexone-inference"
+  ecr_repository: "chexone-inference"
   ecr_image_tag: "latest"
 
   # ── SageMaker ───────────────────────────────────────────────────────────────
-  sagemaker_role_arn: "<YOUR_SAGEMAKER_EXECUTION_ROLE_ARN>"
-  # e.g. "arn:aws:iam::123456789012:role/SageMakerExecutionRole"
+  sagemaker_role_arn: "arn:aws:iam::113627992593:role/SageMakerExecutionRole"
 
   endpoint_name: "chexone-async"
   model_name: "chexone-model"

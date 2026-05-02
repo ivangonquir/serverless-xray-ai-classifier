@@ -1,37 +1,22 @@
 Here's a summary of what you've accomplished as the backend team:
 
 
-## Backend
-### Infrastructure (AWS CDK)
+# Infrastructure
+We have deployed a serverless architecture (Amazon takes care of everything, we don't worry about the infra and just pay for consumed computed power.) on AWS using the Cloud Development Kit (CDK). 
 
-- Deployed 6 stacks to AWS `eu-west-1`: Storage, WebSocket, SageMaker, Lambda, API, Frontend hosting
-- S3 bucket for DICOM images, 7 DynamoDB tables, SQS queue, OpenSearch domain
-- API Gateway (REST + WebSocket), CloudFront distribution
+We have six interconnected stacks:
+- **Storage stack**
+  - S3: For DICOM X-ray images.
+  - DynamoDB: For application state. 
+  - SQS: To trigger asynchronous processing.
+  - OpenSearch: A domain the RAG.
 
-### Backend Logic (8 Lambda functions)
+- **WebSockets**: Strictly dedicated to real-time communication. It septs up the API Gateway WebSocket infra required to push the final async AI inference results directly back to the user's browser.
 
-- Auth (login/logout/session management)
-- Patient management (create, list, get)
-- Upload (pre-signed S3 URLs for X-ray uploads)
-- Diagnostic (job queue management)
-- Inference worker (SageMaker → multimodal fusion → WebSocket push)
-- AI Assistant (RAG with OpenSearch + Bedrock)
-- Connection manager (WebSocket connect/disconnect)
-- Authorizer (session token validation on every request)
+- **SageMaker**: Handles the ML inference environment. Once a model artifact is available in S3, this stack packages it and deploys the LUNA classifier serverless, real-time SageMaker endpoint.
 
-### ML Pipeline
+- **Lambda**: Contains the core business logic of the application. It provisions all eight backend Lambda functions (Auth, Patient management, Upload, Diagnositc, Inference worker, AI Assistant, Connection manager, and Authorizer) and binds the necessary WebSocket routes.
 
-- Fixed the inference response format mismatch so the pipeline works end-to-end
-- Packaged and uploaded a placeholder model to S3
-- Deployed a SageMaker serverless endpoint
+- **API**: Manages HTTP access. It configures the REST API Gateway, establishes the API routes, implements CORS and rate limiting, and attaches the Lamnbda authorizer to ensure all endpoints are secure.
 
-### Live endpoints
-
-- REST API: `https://elomb6x6wi.execute-api.eu-west-1.amazonaws.com/prod`
-- WebSocket: `wss://2hz7iswcg7.execute-api.eu-west-1.amazonaws.com/prod`
-- Frontend hosting: `https://dsq1zl7hro4ae.cloudfront.net` (waiting on frontend team)
-
-
-
-## No Backend
-
+- **Frontend**: Handles the web app hosting for the frontend team. It provisions an S3 bucket to store the static Next.js export and sets up a CloudFront distribution to serve the React Single Page Application (SPA) globally.
