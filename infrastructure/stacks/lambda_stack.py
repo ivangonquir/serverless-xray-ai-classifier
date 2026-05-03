@@ -235,9 +235,18 @@ class LambdaStack(Stack):
             memory_size=128,
             environment={
                 "CONNECTIONS_TABLE": storage_stack.connections_table.table_name,
+                "WEBSOCKET_ENDPOINT": ws_mgmt,
             },
         )
         storage_stack.connections_table.grant_read_write_data(connection_fn)
+        connection_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["execute-api:ManageConnections"],
+                resources=[
+                    f"arn:aws:execute-api:{self.region}:{self.account}:{ws_api.ref}/prod/POST/@connections/*"
+                ],
+            )
+        )
 
         # ── WebSocket Routes ─────────────────────────────────────────────
         self._add_websocket_route(ws_api, "$connect", connection_fn, "ConnectIntegration")

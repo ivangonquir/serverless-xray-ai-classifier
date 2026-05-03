@@ -4,11 +4,20 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LunaMark } from "./LunaMark";
 import ConfirmModal from "./ConfirmModal";
-import { getSession, logout } from "../../lib/auth";
+import { getSession, logout, apiFetch } from "../../lib/auth";
+
+interface Patient {
+  patientId: string;
+  name: string;
+  lastLunaRiskScore: number | null;
+  status: string;
+}
 
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  selectedPatientId: string | null;
+  onSelectPatient: (id: string | null) => void;
 }
 
 /**
@@ -16,15 +25,24 @@ interface SidebarProps {
  * Collapsible, shows nav items + user block + logout at the bottom.
  * Icons are placeholders for future feature wiring.
  */
-export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, selectedPatientId, onSelectPatient }: SidebarProps) {
   const router = useRouter();
   const [username, setUsername] = useState<string>("Clinician");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientsLoading, setPatientsLoading] = useState(false);
 
-  // Load the username from the session stored at login
   useEffect(() => {
     const session = getSession();
     if (session?.username) setUsername(session.username);
+  }, []);
+
+  useEffect(() => {
+    setPatientsLoading(true);
+    apiFetch<{ patients: Patient[] }>("/patients")
+      .then((data) => setPatients(data.patients))
+      .catch(() => {/* silently fail — backend may be unreachable in dev */})
+      .finally(() => setPatientsLoading(false));
   }, []);
 
   // Step 1: button click opens the confirmation modal
@@ -87,20 +105,61 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </button>
       </div>
 
-      {/* Nav items (placeholders) */}
-      <nav className="mt-4 flex-1 space-y-1 overflow-y-auto px-3">
-        <NavItem icon={<MessagesIcon />} label="Conversations" collapsed={collapsed} active />
-        <NavItem icon={<PatientsIcon />} label="Patients" collapsed={collapsed} />
-        <NavItem icon={<DocumentIcon />} label="Reports" collapsed={collapsed} />
-        <NavItem icon={<HistoryIcon />} label="History" collapsed={collapsed} />
+      {/* Nav items */}
+      <nav className="mt-4 flex flex-col overflow-hidden px-3" style={{ flex: 1, minHeight: 0 }}>
+        <div className="space-y-1">
+          <NavItem icon={<MessagesIcon />} label="Conversations" collapsed={collapsed} active />
+          <NavItem icon={<DocumentIcon />} label="Reports" collapsed={collapsed} />
+          <NavItem icon={<HistoryIcon />} label="History" collapsed={collapsed} />
+        </div>
 
-        {!collapsed && (
-          <div className="px-2 pt-6 pb-1 font-display text-[9px] tracking-[0.25em] text-mist/70">
-            TOOLS
-          </div>
-        )}
-        <NavItem icon={<SettingsIcon />} label="Settings" collapsed={collapsed} />
-        <NavItem icon={<HelpIcon />} label="Help" collapsed={collapsed} />
+        {/* Patient triage list */}
+        <div className="mt-4 flex min-h-0 flex-1 flex-col">
+          {!collapsed && (
+            <div className="flex items-center justify-between px-2 pb-1">
+              <span className="font-display text-[9px] tracking-[0.25em] text-mist/70">PATIENTS</span>
+              {patientsLoading && (
+                <span className="font-display text-[9px] tracking-[0.15em] text-mist/50">LOADING…</span>
+              )}
+            </div>
+          )}
+          {collapsed && <div className="py-1"><NavItem icon={<PatientsIcon />} label="Patients" collapsed={collapsed} /></div>}
+
+          {!collapsed && (
+            <div className="flex-1 overflow-y-auto space-y-0.5">
+              {patients.length === 0 && !patientsLoading && (
+                <p className="px-2 py-2 font-sans text-xs text-mist/50">No patients found.</p>
+              )}
+              {patients.map((p) => (
+                <button
+                  key={p.patientId}
+                  onClick={() => onSelectPatient(selectedPatientId === p.patientId ? null : p.patientId)}
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition ${
+                    selectedPatientId === p.patientId
+                      ? "bg-slate/60 text-ice"
+                      : "text-mist hover:bg-slate/40 hover:text-ice"
+                  }`}
+                >
+                  <RiskDot status={p.status} />
+                  <span className="flex-1 truncate font-sans text-xs">{p.name}</span>
+                  <span className={`shrink-0 font-display text-[9px] tabular-nums ${riskScoreColor(p.status)}`}>
+                    {p.lastLunaRiskScore != null ? p.lastLunaRiskScore : "—"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1 pb-2">
+          {!collapsed && (
+            <div className="px-2 pt-4 pb-1 font-display text-[9px] tracking-[0.25em] text-mist/70">
+              TOOLS
+            </div>
+          )}
+          <NavItem icon={<SettingsIcon />} label="Settings" collapsed={collapsed} />
+          <NavItem icon={<HelpIcon />} label="Help" collapsed={collapsed} />
+        </div>
       </nav>
 
       {/* Footer: user block + logout */}
@@ -178,6 +237,24 @@ function NavItem({
       {!collapsed && <span className="truncate font-sans">{label}</span>}
     </button>
   );
+}
+
+/* ---------- Risk helpers ---------- */
+
+function riskScoreColor(status: string): string {
+  if (status === "AI_FLAGGED_HIGH_RISK") return "text-signal-red";
+  if (status === "AI_FLAGGED_MODERATE_RISK") return "text-amber-400";
+  if (status === "AI_FLAGGED_LOW_RISK") return "text-cyan";
+  return "text-mist/50";
+}
+
+function RiskDot({ status }: { status: string }) {
+  const color =
+    status === "AI_FLAGGED_HIGH_RISK" ? "bg-signal-red" :
+    status === "AI_FLAGGED_MODERATE_RISK" ? "bg-amber-400" :
+    status === "AI_FLAGGED_LOW_RISK" ? "bg-cyan" :
+    "bg-mist/40";
+  return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${color}`} />;
 }
 
 /* ---------- Icons (inline SVG to avoid extra deps) ---------- */

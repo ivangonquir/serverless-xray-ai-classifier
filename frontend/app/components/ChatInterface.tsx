@@ -1,25 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {login} from "@/lib/auth";
+import { apiFetch } from "@/lib/auth";
 
-// ============================================================
-// TEMPORARY / MOCK DATA — REMOVE WHEN BACKEND IS WIRED UP
-// Search for "STATIC_GREETING" to locate and delete later.
-// ============================================================
 const STATIC_GREETING = {
-  id: "static-greeting-remove-me",
+  id: "static-greeting",
   role: "assistant" as const,
   content:
-          "Good morning, Doctor. I'm LUNA, your clinical decision support assistant.\n\n" +
-          "I can help you review a patient’s case, interpret diagnostic reports, and suggest next steps based on the available clinical information.\n\n" +
-          "You can:\n\n" +
-          "- Ask about a specific patient\n" +
-          "- Share a report or findings for interpretation\n" +
-          "- Or discuss a clinical case for guidance on next actions\n\n" +
-          "How would you like to proceed today?",
+    "Good morning, Doctor. I’m LUNA, your clinical decision support assistant.\n\n" +
+    "I can help you review a patient’s case, interpret diagnostic reports, and suggest next steps based on the available clinical information.\n\n" +
+    "You can:\n\n" +
+    "- Ask about a specific patient\n" +
+    "- Share a report or findings for interpretation\n" +
+    "- Or discuss a clinical case for guidance on next actions\n\n" +
+    "How would you like to proceed today?",
 };
-// ============================================================
 
 type Message = {
   id: string;
@@ -27,7 +22,7 @@ type Message = {
   content: string;
 };
 
-export default function ChatInterface() {
+export default function ChatInterface({ selectedPatientId }: { selectedPatientId: string | null }) {
   const [messages, setMessages] = useState<Message[]>([STATIC_GREETING]);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -49,7 +44,7 @@ export default function ChatInterface() {
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, [input]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed) return;
 
@@ -61,76 +56,31 @@ export default function ChatInterface() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
 
-    // add temporary loading message (optional but recommended)
     const loadingId = crypto.randomUUID();
+    setMessages((prev) => [...prev, { id: loadingId, role: "assistant", content: "LUNA is thinking…" }]);
 
-    setMessages((prev) => [...prev,
-        {
-          id: loadingId,
-          role: "assistant",
-          content: "LUNA is thinking...",
-        },
-    ]);
-
-    /*
     try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/query`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            query: trimmed,
-            // if we already store selected patient:
-            patientId: selectedPatientId || null,
-            queryType: selectedPatientId ? "patient" : "population",
-          }),
-        });
+      const data = await apiFetch<{ response: string }>("/assistant/query", {
+        method: "POST",
+        body: JSON.stringify({
+          query: trimmed,
+          patientId: selectedPatientId ?? null,
+          queryType: selectedPatientId ? "patient" : "population",
+        }),
+      });
 
-        if (!res.ok) {
-          throw new Error("Backend error");
-        }
-
-        const data = await res.json();
-
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === loadingId
-              ? {
-                  ...m,
-                  content: data.response, // <- from _handle_query we call _call_llm
-                }
-              : m
-          )
-        );
+      setMessages((prev) =>
+        prev.map((m) => (m.id === loadingId ? { ...m, content: data.response } : m))
+      );
     } catch (err) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === loadingId
-              ? {
-                  ...m,
-                  content:
-                    "Error: Unable to reach LUNA backend. Please try again.",
-                }
-              : m
-          )
-        );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === loadingId
+            ? { ...m, content: "Error: Unable to reach LUNA. Please try again." }
+            : m
+        )
+      );
     }
-    */
-
-    // TODO: replace with real API call to backend (RAG / LLM endpoint).
-    // For now, stub an assistant echo so the UI feels alive.
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content:
-            "(stubbed response — backend not yet connected) I received your query. Once the RAG pipeline is wired up, I'll respond with citation-backed information.",
-        },
-      ]);
-    }, 600);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "../components/Sidebar";
 import ChatInterface from "../components/ChatInterface";
+import PatientBar from "../components/PatientBar";
 import { getSession } from "../../lib/auth";
 
 export default function DashboardPage() {
   const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
 
   // Client-side route guard. Real security is enforced by the Lambda Authorizer
   // on the backend — this only avoids rendering the dashboard for users with
@@ -36,6 +38,8 @@ export default function DashboardPage() {
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((v) => !v)}
+        selectedPatientId={selectedPatientId}
+        onSelectPatient={setSelectedPatientId}
       />
 
       {/* Main chat area */}
@@ -44,7 +48,8 @@ export default function DashboardPage() {
         <div className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-radial-glow opacity-60" />
 
         <div className="relative flex flex-1 flex-col overflow-hidden">
-          <ChatInterface />
+          {selectedPatientId && <PatientBar patientId={selectedPatientId} />}
+          <ChatInterface selectedPatientId={selectedPatientId} />
         </div>
       </main>
     </div>

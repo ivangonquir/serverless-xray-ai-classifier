@@ -65,23 +65,7 @@ def lambda_handler(event, context):
     user_id = (event.get("requestContext", {}).get("authorizer") or {}).get("userId", "unknown")
 
     if method == "POST" and path.endswith("/query"):
-        body = _parse_body(event)
-        query_text = (body.get("query") or "").strip()
-
-        if not query_text:
-            return _resp(400, {"error": "query is required"})
-
-        # We only pass query text
-        result = _handle_query(query_text, user_id)
-
-        return _resp(200, {
-            "response": result,
-            "userId": user_id,
-        })
-        # Maybe it's better for the GET case to also be handled here
-        # Doing so we can avoid doing this logic in the frontend
-
-        #return _handle_query(event, user_id)
+        return _handle_query(event, user_id)
     if method == "GET" and path.endswith("/chat"):
         return _get_chat_history(path_params.get("patientId", ""), user_id)
 

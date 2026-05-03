@@ -12,6 +12,7 @@ The InferenceWorker Lambda reads ConnectionsTable to know which active
 WebSocket connections to push diagnostic results to (FR-6.2).
 """
 
+import json
 import os
 import time
 from datetime import datetime, timezone
@@ -20,6 +21,7 @@ import boto3
 
 dynamodb = boto3.resource("dynamodb")
 connections_table = dynamodb.Table(os.environ["CONNECTIONS_TABLE"])
+WEBSOCKET_ENDPOINT = os.environ.get("WEBSOCKET_ENDPOINT", "")
 
 TTL_SECONDS = 2 * 60 * 60  # 2 hours
 
@@ -37,8 +39,6 @@ def lambda_handler(event, context):
 
 
 def _on_connect(event: dict, connection_id: str):
-    # The frontend may pass userId and patientId as query string params
-    # so the InferenceWorker can route results without a separate lookup
     query_params = event.get("queryStringParameters") or {}
     user_id = query_params.get("userId", "")
     patient_id = query_params.get("patientId", "")
@@ -50,6 +50,18 @@ def _on_connect(event: dict, connection_id: str):
         "connectedAt": datetime.now(timezone.utc).isoformat(),
         "TTL": int(time.time()) + TTL_SECONDS,
     })
+
+    # Push the connectionId back so the browser knows its own ID for upload calls
+    if WEBSOCKET_ENDPOINT:
+        try:
+            mgmt = boto3.client("apigatewaymanagementapi", endpoint_url=WEBSOCKET_ENDPOINT)
+            mgmt.post_to_connection(
+                ConnectionId=connection_id,
+                Data=json.dumps({"type": "connected", "connectionId": connection_id}).encode(),
+            )
+        except Exception as e:
+            print(f"Failed to push connectionId to client: {e}")
+
     return {"statusCode": 200, "body": "Connected"}
 
 
