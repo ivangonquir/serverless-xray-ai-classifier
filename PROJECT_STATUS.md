@@ -1,5 +1,9 @@
 # LUNA — Changes Made & Pending Tasks
 
+*Document created: 2026-05-03*
+
+---
+
 ## Changes Made
 
 ### 1. Fixed backend routing bug — `assistant_handler`
@@ -115,69 +119,96 @@ State machine: `idle → requesting → uploading → processing → done / erro
 
 ## What Is Left To Do
 
-### 1. Push and redeploy
-
-```bash
-# Push the local commits
-git push
-
-# Redeploy Lambda stack to apply connection_manager changes
-cd infrastructure
-cdk deploy LunaLambdaStack
-```
+### ~~1. Push and redeploy~~ ✅ Done (see Updates 2026-05-03)
 
 ---
 
 ### 2. Deploy the SageMaker CheXOne endpoint
 
-Requires a Linux machine with a **NVIDIA GPU ≥ 16 GB VRAM**.
+Requires a Linux machine with a **NVIDIA GPU ≥ 16 GB VRAM**. The lab account does not have EC2 permissions via CLI, so use the **AWS Console**.
 
-#### One-time AWS setup
+#### Step 1 — Launch an EC2 GPU instance (AWS Console)
 
-```bash
-aws ecr create-repository --repository-name chexone-inference --region eu-west-1
+1. Go to **EC2 → Instances → Launch Instance**
+2. **Name:** `chexone-setup`
+3. **AMI:** Amazon Linux 2023 (x86_64)
+4. **Instance type:** `g5.xlarge` (NVIDIA A10G, 24 GB VRAM, ~$1.52/hr)
+5. **Key pair:** create a new one and download the `.pem` — AWS only lets you download it once
+6. **Security group:** leave the default (SSH port 22 open)
+7. **Storage:** increase to **100 GB** (default 8 GB is not enough for model weights)
+8. **Launch**
 
-aws iam create-role \
-  --role-name SageMakerExecutionRole \
-  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"sagemaker.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+#### Step 2 — Connect to the instance
 
-aws iam attach-role-policy --role-name SageMakerExecutionRole \
-  --policy-arn arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+**Option A — EC2 Instance Connect (easiest, no `.pem` needed):**
+EC2 → Instances → select instance → **Connect** → **EC2 Instance Connect** tab → **Connect**
 
-aws iam attach-role-policy --role-name SageMakerExecutionRole \
-  --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess
+**Option B — SSH from your machine:**
+```powershell
+# Fix key permissions first (PowerShell)
+icacls "C:\Users\ivang\Downloads\your-key.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
+
+# SSH in (Amazon Linux 2023 uses ec2-user, not ubuntu)
+ssh -i "C:\Users\ivang\Downloads\your-key.pem" ec2-user@<public-ip>
+
+Use `public-ip = 3.250.43.240`
 ```
 
-#### Package and deploy
+#### Step 3 — Set up the environment on the instance
 
 ```bash
-cd ml/chexone_test_production
+# Install Miniconda
+curl -O https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh -b -p $HOME/miniconda3
+export PATH="$HOME/miniconda3/bin:$PATH" # Type this everytime you open a new instance
 
-./setup.sh           # download model weights from HuggingFace (~14 GB)
-make copy-weights    # copy into model_weights/
+# Install git and make (Amazon Linux 2023 uses dnf, not apt)
+sudo dnf install -y git make
+
+# Clone the repo
+git clone https://github.com/ivangonquir/ccbda_project.git
+cd ccbda_project/ml/chexone_test_production
+
+# Configure AWS credentials
+aws configure
+# Enter: Access Key, Secret Key, region: eu-west-1, output: json
+
+# Download weights, create conda env, run smoke test (~20 min first time)
+./setup.sh
+```
+
+#### Step 4 — Package and deploy
+
+```bash
+make copy-weights    # copy HuggingFace cache → model_weights/
 make package-model   # create model.tar.gz
-make upload-model    # upload to S3
+make upload-model    # upload to s3://luna-dicom-113627992593/chexone/model/
 
 make build-docker    # build Docker image
-make push-ecr        # push to ECR
+make push-ecr        # push to ECR (113627992593.dkr.ecr.eu-west-1.amazonaws.com/chexone-inference)
 
 make create-model
 make create-endpoint-config
 make deploy-endpoint
 ```
 
-#### Wait for InService status (~5–15 min)
+#### Step 5 — Wait for InService status (~5–15 min)
 
 ```bash
 aws sagemaker describe-endpoint \
   --endpoint-name chexone-async \
   --region eu-west-1 \
   --query 'EndpointStatus'
+# Wait until: "InService"
 ```
+
+#### Step 6 — Terminate the instance (important — stops billing)
+
+EC2 → Instances → select instance → **Instance State → Terminate**
 
 ---
 
-### 3. Populate the OpenSearch RAG index
+### 3. Populate (fill with elements) the OpenSearch RAG index
 
 The `luna-docs` index exists but is empty — the assistant answers without citations until documents are ingested.
 
@@ -191,6 +222,92 @@ Embeddings are generated with **Amazon Titan Embed Text v2** (`dimensions: 1024`
 
 ---
 
-### 4. Fix typo in setup docs
+### ~~4. Fix typo in setup docs~~ ✅ Already correct — `project-steps.md` had `Luna2024!`; the old file with the typo was deleted by the team.
 
-In `project-steps.md` line 60, the doctor password is `Lunca2024!` — should be `Luna2024!`.
+---
+
+## Updates
+
+### 2026-05-03 — First update
+
+- **Committed all session changes** — 10 files changed (691 insertions, 117 deletions) in commit `843d405`
+- **Pushed to `origin/main`** — 3 total commits pushed (`86e7f68`, `b15d212`, `843d405`)
+- **Typo already resolved** — `project-steps.md` had the correct password (`Luna2024!`); the old file with the typo had been deleted by the team
+- **`cdk deploy LunaLambdaStack` still pending** — `git push` done but CDK redeploy not yet run
+
+---
+
+### 2026-05-03 — Second update
+
+**CDK deploy failed — Docker not running.** `PythonFunction` (used by `auth_handler`) requires Docker to bundle dependencies. Worked around by deploying only the changed Lambdas directly via AWS CLI.
+
+**Fixed `infrastructure/requirements.txt`:**
+- Removed trailing comma from `aws-cdk.aws-lambda-python-alpha` line
+- Corrected version from `2.18.0a0` to `2.180.0a0` (must match `aws-cdk-lib==2.180.0`)
+- Ran `pip install -r infrastructure/requirements.txt` to install all missing packages
+
+**`connection_manager` deployed via AWS CLI** (code + `WEBSOCKET_ENDPOINT` env var set):
+- `execute-api:ManageConnections` IAM permission could **not** be added — lab user `lab_serverless_user` does not have `iam:PutRolePolicy`
+- As a result, `connection_manager` silently fails to push `connectionId` back to the browser
+
+**Workaround implemented** to bypass the missing IAM permission — three-file change:
+
+| File | Change |
+|---|---|
+| `frontend/lib/websocket.ts` | Connects with `?userId=<userId>` so the server stores userId alongside connectionId in DynamoDB |
+| `backend/lambdas/upload_handler/handler.py` | Embeds `userid` in S3 object metadata alongside `jobid` and `connectionid` |
+| `backend/lambdas/inference_worker/handler.py` | Reads `userid` from S3 metadata; if `connectionId` is empty, scans `ConnectionsTable` for the most recent active connection for that user and pushes the result there. Added `connections_table` DynamoDB client |
+
+**Deployed via AWS CLI:**
+- `LunaLambdaStack-LunaConnectionManager...` — updated code + `WEBSOCKET_ENDPOINT` env var
+- `LunaLambdaStack-LunaUploadHandler...` — updated code
+- `LunaLambdaStack-LunaInferenceWorker...` — updated code
+
+**Frontend build:** clean (`✓ Compiled successfully`)
+
+**Remaining open:** SageMaker CheXOne endpoint (needs GPU machine), OpenSearch RAG index ingestion
+
+---
+
+### 2026-05-04 — SageMaker deployment attempt
+
+Attempted to deploy the CheXOne SageMaker endpoint from an EC2 instance. Progress made and blockers hit:
+
+**Completed:**
+- Launched new EC2 instance (Amazon Linux 2023, 100 GB storage) with `serverless-xray-kp` key pair
+- Installed Miniconda, accepted conda ToS, installed all Python dependencies (torch 2.11.0, transformers, etc.)
+- Worked around `/tmp` tmpfs size limit (459 MB < torch 530 MB) by setting `TMPDIR=~/tmp`
+- Added 8 GB swap file to prevent OOM kills during model weight download
+- Downloaded CheXOne model weights from HuggingFace (~14 GB) — weights cached in `~/.cache/huggingface/`
+- Ran `make copy-weights` and `make package-model` successfully
+- Granted `aws-elasticbeanstalk-ec2-role` S3 write access via bucket policy on `luna-dicom-113627992593`
+- Ran `make upload-model` successfully — `model.tar.gz` uploaded to `s3://luna-dicom-113627992593/chexone/model/model.tar.gz`
+- Installed Docker on the instance
+- Authenticated Docker to AWS ECR using the EB instance role
+
+**Blocked on:**
+- `make build-docker` fails — base image tag `pytorch-inference:2.5.1-gpu-py311-cu121-ubuntu22.04-sagemaker` not found in `763104351884.dkr.ecr.eu-west-1.amazonaws.com`
+- The CUDA version in the tag is likely wrong (`cu121` → should probably be `cu124` for PyTorch 2.5.1)
+
+**Next session — fix the Dockerfile and resume:**
+
+1. Update [ml/chexone_test_production/Dockerfile](ml/chexone_test_production/Dockerfile) line 8 — change `cu121` to `cu124`:
+   ```
+   FROM 763104351884.dkr.ecr.eu-west-1.amazonaws.com/pytorch-inference:2.5.1-gpu-py311-cu124-ubuntu22.04-sagemaker
+   ```
+2. Commit and push the change locally
+3. On a new EC2 instance (100 GB, Amazon Linux 2023, `serverless-xray-kp`):
+   - `git clone https://github.com/ivangonquir/ccbda_project.git`
+   - `cd ccbda_project/ml/chexone_test_production`
+   - `export PATH="$HOME/miniconda3/bin:$PATH"` (Miniconda already installed on fresh instance)
+   - Authenticate Docker: `rm ~/.aws/credentials && aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin 763104351884.dkr.ecr.eu-west-1.amazonaws.com`
+   - `make build-docker`
+   - `make push-ecr`
+   - `make create-model`
+   - `make create-endpoint-config`
+   - `make deploy-endpoint`
+4. Wait for `"InService"` status, then terminate the instance
+
+**Note:** `model.tar.gz` is already uploaded to S3 — no need to redo `make copy-weights / package-model / upload-model`.
+
+**Also:** Rotate `lab_serverless_user` AWS credentials — the access key was accidentally exposed in chat.
