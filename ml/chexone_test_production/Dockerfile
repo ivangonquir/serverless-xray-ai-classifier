@@ -5,7 +5,7 @@
 # Region: eu-west-1  (change the ECR URI below for other regions)
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM 763104351884.dkr.ecr.eu-west-1.amazonaws.com/pytorch-inference:2.5.1-gpu-py311-cu121-ubuntu22.04-sagemaker
+FROM 763104351884.dkr.ecr.eu-west-1.amazonaws.com/pytorch-inference:2.5.1-gpu-py311-cu124-ubuntu22.04-sagemaker
 
 # ── Install additional Python packages ────────────────────────────────────────
 COPY requirements.txt /opt/ml/code/requirements.txt

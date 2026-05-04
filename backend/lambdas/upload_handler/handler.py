@@ -68,6 +68,7 @@ def lambda_handler(event, context):
                 "jobid": job_id,
                 "patientid": patient_id,
                 "connectionid": connection_id,
+                "userid": user_id,
             },
         },
         ExpiresIn=PRESIGN_EXPIRY_SECONDS,

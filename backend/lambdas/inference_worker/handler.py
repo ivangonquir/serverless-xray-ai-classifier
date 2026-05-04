@@ -38,6 +38,7 @@ apigw_mgmt = boto3.client(
 
 patients_table = dynamodb.Table(os.environ["PATIENTS_TABLE"])
 results_table = dynamodb.Table(os.environ["DIAGNOSTIC_RESULTS_TABLE"])
+connections_table = dynamodb.Table(os.environ["CONNECTIONS_TABLE"])
 SAGEMAKER_ENDPOINT = os.environ["SAGEMAKER_ENDPOINT"]
 DICOM_BUCKET = os.environ["DICOM_BUCKET"]
 
@@ -58,6 +59,7 @@ def _process_record(sqs_record: dict):
         patient_id = body["patientId"]
         s3_key = body["s3Key"]
         connection_id = body.get("connectionId", "")
+        user_id = body.get("userId", "")
     elif "Records" in body:
         # S3 event notification wrapped in SQS
         s3_rec = body["Records"][0]
@@ -69,9 +71,14 @@ def _process_record(sqs_record: dict):
         job_id = meta.get("jobid", str(uuid.uuid4()))
         patient_id = meta.get("patientid", "")
         connection_id = meta.get("connectionid", "")
+        user_id = meta.get("userid", "")
     else:
         print(f"Unrecognised SQS message format: {body}")
         return
+
+    # If connectionId is missing, fall back to pushing to all active connections for this user
+    if not connection_id and user_id:
+        connection_id = _lookup_connection_by_user(user_id)
 
     _notify(connection_id, {"type": "status", "jobId": job_id, "status": "processing"})
 
@@ -432,6 +439,23 @@ def _update_job_status(job_id: str, status: str, error: str = ""):
         )
     except Exception:
         pass
+
+
+def _lookup_connection_by_user(user_id: str) -> str:
+    """Scans ConnectionsTable for the most recent active connection belonging to user_id."""
+    try:
+        resp = connections_table.scan(
+            FilterExpression="userId = :uid",
+            ExpressionAttributeValues={":uid": user_id},
+        )
+        items = resp.get("Items", [])
+        if not items:
+            return ""
+        items.sort(key=lambda x: x.get("connectedAt", ""), reverse=True)
+        return items[0]["connectionId"]
+    except Exception as e:
+        print(f"Connection lookup failed: {e}")
+        return ""
 
 
 def _notify(connection_id: str, payload: dict):

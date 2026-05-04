@@ -36,3 +36,13 @@ Thumbs.db
 *.pdf
 
 lab_serverless_user_accessKeys.csv
+
+# Secrets / keys
+*.pem
+
+# Large installers
+*.sh_installer
+Miniconda3*.sh
+
+# Lambda build artifacts
+**/function.zip

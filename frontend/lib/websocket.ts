@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getSession } from "./auth";
 
 export interface WsResult {
   type: "result";
@@ -36,7 +37,9 @@ export function useWebSocket() {
     const url = process.env.NEXT_PUBLIC_WS_URL;
     if (!url) return;
 
-    const ws = new WebSocket(url);
+    const session = getSession();
+    const wsUrl = session?.userId ? `${url}?userId=${session.userId}` : url;
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
