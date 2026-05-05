@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth";
+import ReactMarkdown from "react-markdown";
 
 const STATIC_GREETING = {
   id: "static-greeting",
@@ -172,8 +173,8 @@ function MessageBubble({ message }: { message: Message }) {
             : "border border-steel/50 bg-midnight/60 text-ice"
         }`}
       >
-        <div className="whitespace-pre-line">
-          {message.content}
+        <div className="prose prose-invert prose-sm max-w-none">
+          <ReactMarkdown>{message.content}</ReactMarkdown>
         </div>
       </div>
     </div>

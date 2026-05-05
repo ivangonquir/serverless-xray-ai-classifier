@@ -387,28 +387,67 @@ def _call_sagemaker_llm(system_prompt: str, context: str, query: str) -> str:
         return _call_bedrock(system_prompt, context, query)
 
 
-def _call_bedrock(system_prompt: str, context: str, query: str) -> str:
-    """Invokes Amazon Bedrock Claude as the LLM fallback."""
-    user_message = f"{context}\n\n---\n\nQuestion: {query}" if context else query
-
-    body = json.dumps({
+def _build_bedrock_body(model_id: str, system_prompt: str, user_message: str) -> str:
+    if "nova" in model_id:
+        return json.dumps({
+            "messages": [{"role": "user", "content": [{"text": user_message}]}],
+            "system": [{"text": system_prompt}],
+            "inferenceConfig": {"maxTokens": 1024},
+        })
+    if "titan" in model_id:
+        return json.dumps({
+            "inputText": f"{system_prompt}\n\n{user_message}",
+            "textGenerationConfig": {"maxTokenCount": 1024, "temperature": 0.7},
+        })
+    # Anthropic Claude format
+    return json.dumps({
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 1024,
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_message}],
     })
 
+
+def _parse_bedrock_response(model_id: str, result: dict) -> str:
+    if "results" in result:
+        return result["results"][0]["outputText"]
+    if "output" in result:
+        return result["output"]["message"]["content"][0]["text"]
+    return result["content"][0]["text"]
+
+
+def _call_bedrock(system_prompt: str, context: str, query: str) -> str:
+    """Invokes Amazon Bedrock. Supports Claude, Nova, and Titan models."""
+    model_id = BEDROCK_MODEL_ID
+
+    # First attempt: full context + query
+    user_message = f"{context}\n\n---\n\nQuestion: {query}" if context else query
+    body = _build_bedrock_body(model_id, system_prompt, user_message)
+
     try:
         resp = bedrock.invoke_model(
-            modelId=BEDROCK_MODEL_ID,
+            modelId=model_id,
             contentType="application/json",
             accept="application/json",
             body=body,
         )
-        result = json.loads(resp["body"].read())
-        return result["content"][0]["text"]
+        text = _parse_bedrock_response(model_id, json.loads(resp["body"].read()))
+
+        # If content filter triggered, retry with query only (no clinical context)
+        if "content filters" in text.lower() or "blocked" in text.lower():
+            print(f"Content filter triggered with context; retrying query-only. model={model_id}")
+            fallback_body = _build_bedrock_body(model_id, system_prompt, query)
+            resp2 = bedrock.invoke_model(
+                modelId=model_id,
+                contentType="application/json",
+                accept="application/json",
+                body=fallback_body,
+            )
+            text = _parse_bedrock_response(model_id, json.loads(resp2["body"].read()))
+
+        return text
     except Exception as exc:
-        print(f"Bedrock call failed: {exc}")
+        print(f"Bedrock call failed: {type(exc).__name__}: {exc}")
         return (
             "I'm unable to process your query at this time. "
             "Please try again or contact technical support."
@@ -614,19 +653,3 @@ def _handle_population_query(query_text: str, intent: str):
 
     return _call_llm(system_prompt, context_text, query_text)
 
-# -- New Query handler -----------------------------------------------------------
-
-def _handle_query(query_text: str, user_id: str):
-    analysis = _analyze_query(query_text)
-
-    if analysis["type"] == "patient":
-        return _handle_patient_query(
-            query_text,
-            analysis["patient_id"],
-            analysis["intent"]
-        )
-
-    return _handle_population_query(
-        query_text,
-        analysis["intent"]
-    )
