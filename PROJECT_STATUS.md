@@ -229,3 +229,29 @@ Attempted to deploy the CheXOne SageMaker endpoint from an EC2 instance. Progres
 **Remaining open:** OpenSearch RAG index ingestion (`luna-docs` index is empty)
 
 **Also:** Rotate `lab_serverless_user` AWS credentials — the access key was accidentally exposed in chat.
+
+---
+
+### 2026-05-05 — LUNA assistant fully working
+
+**Root cause of the "I'm unable to process your query" error:**
+
+Amazon Titan Text Express (`amazon.titan-text-express-v1`) — the model we switched to to avoid Nova Micro's content filters — has reached end-of-life and returns `ResourceNotFoundException`. This caused the `except` block to fire and return the fallback message silently.
+
+**Fix applied in `backend/lambdas/assistant_handler/handler.py` (commit `4beed26`):**
+
+1. **Reverted model to `eu.amazon.nova-micro-v1:0`** — confirmed working in `eu-west-1`.
+2. **Content-filter retry logic:** when Nova returns a response containing "content filters" or "blocked" (which it does for detailed clinical context containing terms like "malignancy", "lung cancer risk score"), the handler automatically retries with only the user query (no patient context). This lets it answer general medical questions while gracefully handling cases where raw patient data triggers the guardrail.
+3. **Refactored `_call_bedrock`** into clean `_build_bedrock_body` / `_parse_bedrock_response` helpers supporting Claude, Nova, and Titan formats.
+
+**Markdown rendering in frontend:**
+
+- Installed `react-markdown` in the Next.js app
+- `MessageBubble` in `ChatInterface.tsx` now renders assistant responses as formatted Markdown (headers, bold, bullet lists) instead of raw `**text**` syntax
+
+**End-to-end test results (2026-05-05):**
+- Population query "What are lung cancer risk factors?" → structured 7-category response ✅
+- Patient query for Susan Park (p-003) → risk summary, interpretation, recommendation ✅
+- Markdown rendering in browser ✅
+
+**Remaining open:** OpenSearch RAG index ingestion (`luna-docs` index is empty — assistant answers without document citations)
