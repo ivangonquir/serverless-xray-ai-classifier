@@ -24,7 +24,7 @@ SageMaker leverages a robust storage layer to ensure data persistence and high-p
 - **Amazon S3:** Serves as the primary data lake for datasets, training scripts, checkpoints, and model artifacts. It acts as the "source of truth," ensuring all assets are versioned and accessible for both distributed training and model deployment.
 - **Amazon DynamoDB:** can support low-latency metadata and operational state in broader solution architectures.
 - **Amazon EFS:** shared filesystem support for collaborative Studio/Jupyter workflows. It allows multiple team members to share code and data while ensuring that the development environment remains durable even when compute instances are stopped.
-- **Data Warehouse Integration:** Connects to Amazon Redshift and Snowflake via SQL magics. This enables a Lakehouse architecture by combining structured warehouse data with unstructured S3 data for unified analysis.
+- **Data Warehouse Integration:** Connects to Amazon Redshift and Snowflake via SQL. This enables a Lakehouse architecture by combining structured warehouse data with unstructured S3 data for unified analysis.
 
 ### 3) Monitoring & AIOps
 Monitoring is typically implemented with **SageMaker Model Monitor** plus observability from **Amazon CloudWatch**.
@@ -97,8 +97,21 @@ estimator = Estimator(
 
 estimator.fit({"training": "s3://your-bucket/data"})
 ```
+### 3) Model Evaluation
 
-### 3) Model Deployment (Inference)
+Before transitioning from training to production, SageMaker provides a comprehensive evaluation phase to ensure model reliability, compliance, and alignment with business objectives.
+
+- **Automated Evaluation.** SageMaker performs systematic validation of model performance and behavior as part of the AIOps lifecycle.
+    - **Performance Metrics:** It generates standardized evaluation reports, including accuracy, precision, recall, and other task-specific metrics.
+    - **Bias & Fairness:** With tools such as :contentReference[oaicite:2]{index=2}, it identifies potential bias across sensitive attributes and evaluates model fairness.
+    - **Model Monitoring Readiness:** Evaluation results can be integrated with monitoring tools to track data drift and performance degradation after deployment.
+
+- **Human Evaluation.** For tasks where automated metrics are insufficient—such as large language model alignment or medical imaging—SageMaker enables human-in-the-loop workflows (e.g., via labeling services) to validate outputs, improve quality, and ensure alignment with domain-specific requirements.
+
+
+
+
+### 4) Model Deployment (Inference)
 After training, models are deployed to managed **SageMaker Endpoints**.
 
 ![alt text](figures/sagemaker3.png)
@@ -112,6 +125,7 @@ After training, models are deployed to managed **SageMaker Endpoints**.
 - **Batch Transform:** offline high-throughput inference.
 
 ---
+
 
 ## 5. Personal & Industry Perspective
 
