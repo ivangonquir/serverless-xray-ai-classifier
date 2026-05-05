@@ -19,9 +19,12 @@ SageMaker supports a broad set of CPU and GPU instance types.
 - **SageMaker HyperPod:** for very large training workloads, it optimizes distributed infrastructure across accelerators and can significantly reduce iteration time.
 
 ### 2) Integrated Storage
-- **Amazon S3:** primary storage for datasets, training scripts, checkpoints, and model artifacts.
+SageMaker leverages a robust storage layer to ensure data persistence and high-performance access throughout the ML lifecycle.
+
+- **Amazon S3:** Serves as the primary data lake for datasets, training scripts, checkpoints, and model artifacts. It acts as the "source of truth," ensuring all assets are versioned and accessible for both distributed training and model deployment.
 - **Amazon DynamoDB:** can support low-latency metadata and operational state in broader solution architectures.
-- **Amazon EFS:** shared filesystem support for collaborative Studio/Jupyter workflows.
+- **Amazon EFS:** shared filesystem support for collaborative Studio/Jupyter workflows. It allows multiple team members to share code and data while ensuring that the development environment remains durable even when compute instances are stopped.
+- **Data Warehouse Integration:** Connects to Amazon Redshift and Snowflake via SQL magics. This enables a Lakehouse architecture by combining structured warehouse data with unstructured S3 data for unified analysis.
 
 ### 3) Monitoring & AIOps
 Monitoring is typically implemented with **SageMaker Model Monitor** plus observability from **Amazon CloudWatch**.
