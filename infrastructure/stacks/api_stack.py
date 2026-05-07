@@ -51,9 +51,10 @@ class ApiStack(Stack):
             environment={
                 "SESSIONS_TABLE": storage_stack.sessions_table.table_name,
                 "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+                "SESSION_EXTEND_THRESHOLD": "3600",
             },
         )
-        storage_stack.sessions_table.grant_read_data(authorizer_fn)
+        storage_stack.sessions_table.grant_read_write_data(authorizer_fn)
         storage_stack.audit_log_table.grant_write_data(authorizer_fn)
 
         # ── REST API ─────────────────────────────────────────────────────

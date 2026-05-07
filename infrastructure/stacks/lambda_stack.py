@@ -61,12 +61,14 @@ class LambdaStack(Stack):
                 "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
                 "SECRET_NAME": storage_stack.password_secret.secret_name,
                 "ALLOWED_ORIGINS": allowed_origins,
+                "LOGIN_ATTEMPTS_TABLE": storage_stack.login_attempts_table.table_name
             },
         )
         storage_stack.password_secret.grant_read(self.auth_fn)
         storage_stack.users_table.grant_read_write_data(self.auth_fn)
         storage_stack.sessions_table.grant_read_write_data(self.auth_fn)
         storage_stack.audit_log_table.grant_write_data(self.auth_fn)
+        storage_stack.login_attempts_table.grant_read_write_data(self.auth_fn)
 
         # ── 3. Patient Handler ───────────────────────────────────────────
         # GET  /patients        — triage list sorted by LUNA Risk Score
@@ -132,6 +134,7 @@ class LambdaStack(Stack):
         storage_stack.diagnostic_results_table.grant_read_write_data(self.diagnostic_fn)
         storage_stack.diagnostic_queue.grant_send_messages(self.diagnostic_fn)
         storage_stack.audit_log_table.grant_write_data(self.diagnostic_fn)
+        storage_stack.sqs_kms_key.grant_encrypt_decrypt(self.diagnostic_fn)
 
         # ── 6. Inference Worker ──────────────────────────────────────────
         # SQS trigger → download DICOM → invoke SageMaker → multimodal fusion
@@ -149,6 +152,7 @@ class LambdaStack(Stack):
                 "DICOM_BUCKET": storage_stack.dicom_bucket.bucket_name,
                 "SAGEMAKER_ENDPOINT": "chexone-async",  # ML team deploys this endpoint independently
                 "WEBSOCKET_ENDPOINT": ws_mgmt,
+                "CONNECTIONS_TABLE": storage_stack.connections_table.table_name,
             },
         )
         storage_stack.patients_table.grant_read_data(inference_fn)
@@ -156,6 +160,7 @@ class LambdaStack(Stack):
         storage_stack.dicom_bucket.grant_read(inference_fn)
         storage_stack.connections_table.grant_read_data(inference_fn)
         storage_stack.diagnostic_queue.grant_consume_messages(inference_fn)
+        storage_stack.sqs_kms_key.grant_encrypt_decrypt(inference_fn)
         # Call the CheXOne async classifier endpoint
         inference_fn.add_to_role_policy(
             iam.PolicyStatement(

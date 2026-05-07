@@ -8,6 +8,7 @@ from aws_cdk import (
     aws_sqs as sqs,
     aws_opensearchservice as opensearch,
     aws_iam as iam,
+    aws_kms as kms,
     CfnOutput,
 )
 from constructs import Construct
@@ -25,6 +26,7 @@ class StorageStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
             cors=[s3.CorsRule(
                 allowed_methods=[s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
                 allowed_origins=["*"],
@@ -32,7 +34,25 @@ class StorageStack(Stack):
                 max_age=3000,
             )],
         )
-
+        self.sqs_kms_key = kms.Key(
+            self, "LunaSQSEncryptionKey",
+            description="KMS Key for Luna Diagnostic SQS encryption",
+            enable_key_rotation=True,
+            removal_policy=RemovalPolicy.DESTROY
+        )
+        self.sqs_kms_key.add_to_resource_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                principals=[iam.ServicePrincipal("s3.amazonaws.com")],
+                actions=["kms:GenerateDataKey*", "kms:Decrypt"],
+                resources=["*"],
+                conditions={
+                    "ArnLike": {
+                        "aws:SourceArn": self.dicom_bucket.bucket_arn
+                    }
+                }
+            )
+        )
         # ── SQS: async diagnostic job queue ─────────────────────────────
         # Decouples DICOM upload from ML inference to support asynchronous
         # processing and notify clinicians only when the result is ready (FR-6.2)
@@ -40,11 +60,15 @@ class StorageStack(Stack):
             self, "LunaDiagnosticDLQ",
             queue_name="luna-diagnostic-dlq",
             retention_period=Duration.days(14),
+            encryption=sqs.QueueEncryption.KMS,
+            encryption_master_key=self.sqs_kms_key
         )
         self.diagnostic_queue = sqs.Queue(
             self, "LunaDiagnosticQueue",
             queue_name="luna-diagnostic-queue",
             visibility_timeout=Duration.seconds(2160),  # 6× Lambda timeout (360s)
+            encryption=sqs.QueueEncryption.KMS,
+            encryption_master_key=self.sqs_kms_key,
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=dlq,
@@ -67,6 +91,7 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
         self.users_table.add_global_secondary_index(
             index_name="UsernameIndex",
@@ -86,6 +111,7 @@ class StorageStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
             time_to_live_attribute="TTL",
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
 
         # ── DynamoDB: Patients ───────────────────────────────────────────
@@ -97,6 +123,7 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
 
         # ── DynamoDB: Diagnostic Results ─────────────────────────────────
@@ -108,6 +135,7 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
         # GSI to fetch all results for a patient, newest first
         self.diagnostic_results_table.add_global_secondary_index(
@@ -133,6 +161,7 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
 
         # ── DynamoDB: Audit Log ──────────────────────────────────────────
@@ -147,6 +176,7 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
         self.audit_log_table.add_global_secondary_index(
             index_name="UserIdIndex",
@@ -169,6 +199,19 @@ class StorageStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
             time_to_live_attribute="TTL",
+        )
+
+        # DynamoDB: login attempt
+        self.login_attempts_table = dynamodb.Table(
+            self, "LunaLoginAttemptsTable",
+            table_name=f"luna-login-attempts-{self.account}",
+            partition_key=dynamodb.Attribute(
+                name="ip", type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=RemovalPolicy.DESTROY,
+            time_to_live_attribute="TTL",
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
 
         # ── OpenSearch: RAG Knowledge Base ───────────────────────────────
@@ -206,6 +249,7 @@ class StorageStack(Stack):
         CfnOutput(self, "DicomBucketName", value=self.dicom_bucket.bucket_name)
         CfnOutput(self, "DiagnosticQueueUrl", value=self.diagnostic_queue.queue_url)
         CfnOutput(self, "OpenSearchEndpoint", value=self.opensearch_domain.domain_endpoint)
+        CfnOutput(self, "LoginAttemptsTableName", value=self.login_attempts_table.table_name)
 
         # ── Secret Manager ──────────────────────────────────────────────────────
         self.password_secret = secretsmanager.Secret(self, "LunaPasswordSecret",

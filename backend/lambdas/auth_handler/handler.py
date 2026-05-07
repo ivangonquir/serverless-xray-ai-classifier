@@ -23,6 +23,8 @@ import uuid
 from datetime import datetime, timezone
 import boto3
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
+
 
 dynamodb = boto3.resource("dynamodb")
 users_table = dynamodb.Table(os.environ["USERS_TABLE"])
@@ -45,7 +47,7 @@ def _log(level, message, action=None, extra=None, trace_id=None):
         extra.pop("message", None)
         extra.pop("traceId", None)
         entry.update(extra)
-    print(json.dumps(entry, default=str))  # default=str 以防某些类型无法序列化
+    print(json.dumps(entry, default=str))
 
 def _cors_headers(event):
     origin = event.get("headers", {}).get("origin", "")
@@ -110,7 +112,56 @@ def lambda_handler(event, context):
 
 # ── Login ─────────────────────────────────────────────────────────────────
 
-def _login(event,trace_id):
+LOGIN_ATTEMPTS_TABLE = dynamodb.Table(os.environ["LOGIN_ATTEMPTS_TABLE"])
+
+def _get_login_attempts(ip):
+    resp = LOGIN_ATTEMPTS_TABLE.get_item(Key={"ip": ip})
+    return resp.get("Item")
+
+def _increment_login_failure(ip, max_attempts, lockout_seconds):
+    now_epoch = int(time.time())
+    lockout_until = now_epoch + lockout_seconds
+    try:
+        LOGIN_ATTEMPTS_TABLE.update_item(
+            Key={"ip": ip},
+            UpdateExpression=(
+                "ADD attempts :inc "
+                "SET lockoutUntil = if_not_exists(lockoutUntil, :zero), "
+                "#t = :ttl"
+            ),
+            ConditionExpression="attribute_not_exists(lockoutUntil) OR lockoutUntil < :now",
+            ExpressionAttributeNames={"#t": "TTL"},
+            ExpressionAttributeValues={
+                ":inc": 1,
+                ":zero": 0,
+                ":ttl": lockout_until,
+                ":now": now_epoch
+            }
+        )
+        # Si el update tuvo éxito, verificar si alcanzamos el umbral
+        attempts_after = _get_login_attempts(ip)
+        if attempts_after and attempts_after.get("attempts", 0) >= max_attempts:
+            LOGIN_ATTEMPTS_TABLE.update_item(
+                Key={"ip": ip},
+                UpdateExpression="SET lockoutUntil = :lock, attempts = :zero, #t = :lock",
+                ExpressionAttributeNames={"#t": "TTL"},
+                ExpressionAttributeValues={
+                    ":lock": now_epoch + lockout_seconds,
+                    ":zero": 0
+                }
+            )
+    except ClientError:
+        # Only ignore the condition check failure (lockout still active)
+        pass
+
+
+def _reset_login_attempts(ip):
+    try:
+        LOGIN_ATTEMPTS_TABLE.delete_item(Key={"ip": ip})
+    except Exception:
+        pass  # no queremos que falle el login por esto
+
+def _login(event, trace_id):
     body = _parse_body(event)
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
@@ -119,21 +170,48 @@ def _login(event,trace_id):
         _log("WARNING", "Missing credentials in login request", action="LOGIN",
              extra={"usernameProvided": bool(username), "passwordProvided": bool(password)},
              trace_id=trace_id)
-        return _resp(400, {"error": "username and password are required"},event)
+        return _resp(400, {"error": "username and password are required"}, event)
 
+    source_ip = event.get("requestContext", {}).get("http", {}).get("sourceIp", "unknown")
+
+    # --- Rate limiting check ---
+    MAX_ATTEMPTS = 5
+    LOCKOUT_SECONDS = 900  # 15 minutos
+    now_epoch = int(time.time())
+
+    # Obtener estado de intentos
+    attempts_item = _get_login_attempts(source_ip)
+    if attempts_item:
+        lockout = attempts_item.get("lockoutUntil", 0)
+        if lockout > now_epoch:
+            _log("WARNING", "Login blocked due to lockout", action="LOGIN_LOCKOUT",
+                 extra={"sourceIp": source_ip, "lockoutUntil": lockout}, trace_id=trace_id)
+            # ── FIX: convert Decimal to int for JSON ──
+            return _resp(429, {
+                "error": "Too many attempts. Try again later.",
+                "retryAfter": int(lockout - now_epoch)
+            }, event)
+
+    # --- Validación de credenciales ---
     user = _find_user_by_username(username)
     if not user:
-        _log("WARNING", "Login failed: user not found or wrong password", action="LOGIN_FAILED",
-             extra={"username": username[:3] + "***"},
-             trace_id=trace_id)
-        return _resp(401, {"error": "Invalid credentials"},event)
+        # ── FIX: user not found – no audit, but count failure ──
+        _increment_login_failure(source_ip, MAX_ATTEMPTS, LOCKOUT_SECONDS)
+        _log("WARNING", "Login failed: user not found", action="LOGIN_FAILED",
+             extra={"username": username[:3] + "***"}, trace_id=trace_id)
+        return _resp(401, {"error": "Invalid credentials"}, event)
 
     if not _verify_password(password, user["passwordHash"]):
+        # ── FIX: password wrong – full audit with correct args ──
+        _increment_login_failure(source_ip, MAX_ATTEMPTS, LOCKOUT_SECONDS)
         _log("WARNING", "Login failed: password mismatch", action="LOGIN_FAILED",
              extra={"userId": user["userId"], "username": username[:3] + "***"},
              trace_id=trace_id)
-        _write_audit(user["userId"], "LOGIN_FAILED", "User", user["userId"])
-        return _resp(401, {"error": "Invalid credentials"},event)
+        _write_audit(user["userId"], "LOGIN_FAILED", "User", user["userId"])  # four args
+        return _resp(401, {"error": "Invalid credentials"}, event)
+
+    # --- Autenticación exitosa: resetear intentos fallidos ---
+    _reset_login_attempts(source_ip)
 
     token = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
@@ -153,7 +231,7 @@ def _login(event,trace_id):
         "userId": user["userId"],
         "username": user["username"],
         "role": user.get("role", "doctor"),
-    },event)
+    }, event)
 
 
 # ── Logout ────────────────────────────────────────────────────────────────
