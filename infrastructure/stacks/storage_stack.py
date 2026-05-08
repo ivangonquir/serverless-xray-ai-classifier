@@ -219,7 +219,8 @@ class StorageStack(Stack):
         # The ML team ingests: MIMIC-CXR radiology reports, PubMed/PMC oncology
         # papers, and Fleischner Society guidelines into the "luna-docs" index.
         self.opensearch_domain = opensearch.Domain(
-            self, "LunaOpenSearch",
+            self,
+            "LunaOpenSearch",
             domain_name="luna-knowledge-base",
             version=opensearch.EngineVersion.OPENSEARCH_2_11,
             capacity=opensearch.CapacityConfig(
@@ -227,14 +228,15 @@ class StorageStack(Stack):
                 data_node_instance_type="t3.small.search",
             ),
             ebs=opensearch.EbsOptions(
-                volume_size=20,
+                volume_size=10,
+            ),
+            zone_awareness=opensearch.ZoneAwarenessConfig(
+                enabled=False
             ),
             removal_policy=RemovalPolicy.DESTROY,
             enforce_https=True,
             node_to_node_encryption=True,
             encryption_at_rest=opensearch.EncryptionAtRestOptions(enabled=True),
-            # Restrict to the AWS account; Lambda roles get access via
-            # domain.grant_read_write() in lambda_stack.py
             access_policies=[
                 iam.PolicyStatement(
                     effect=iam.Effect.ALLOW,

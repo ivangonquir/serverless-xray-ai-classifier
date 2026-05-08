@@ -33,8 +33,6 @@ Thumbs.db
 .vscode/
 .idea/
 
-*.pdf
-
 lab_serverless_user_accessKeys.csv
 
 # Secrets / keys
@@ -46,3 +44,10 @@ Miniconda3*.sh
 
 # Lambda build artifacts
 **/function.zip
+
+# --------------
+
+# Data
+data_ingestion/vindr_dicoms/*
+data_ingestion/vindr_results/*
+data_ingestion/rag_docs/*

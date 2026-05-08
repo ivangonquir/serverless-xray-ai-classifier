@@ -1,68 +1,192 @@
-# Serverless AI-Driven X-Ray Classifier
+# LUNA — Serverless Lung Cancer AI Platform
 
-A real-time, serverless web platform for assisted X-Ray diagnosis built on AWS.
+## Overview
 
-## Architecture
+LUNA is a serverless, AI-driven clinical decision support system for **lung cancer screening and pulmonary nodule analysis**.
 
-- **Frontend**: Next.js (static export) → S3 + CloudFront
-- **API**: API Gateway WebSocket + Lambda
-- **Storage**: S3 (images), DynamoDB (connections + history), SQS (async queue)
-- **ML**: SageMaker (ResNet training) → SageMaker Serverless Endpoint
-- **Secrets**: AWS Systems Manager Parameter Store
+It combines:
 
-## Project Structure
+- 🧠 Medical imaging AI (SageMaker CheXOne)
+- 📚 Retrieval-Augmented Generation (OpenSearch + Bedrock)
+- 🏥 Patient-level clinical context (DynamoDB)
+- ⚡ Real-time inference pipeline (S3 + SQS + Lambda + WebSockets)
 
-```
-ccbda_project/
-├── frontend/          # Next.js application
-├── backend/
-│   └── lambdas/
-│       ├── connection_manager/   # WebSocket $connect/$disconnect
-│       ├── url_generator/        # S3 pre-signed URL generator
-│       └── inference_worker/     # SQS → SageMaker → DynamoDB → WebSocket push
-├── ml/
-│   ├── training/      # SageMaker training script (ResNet/PyTorch)
-│   └── inference/     # SageMaker inference script
-├── infrastructure/    # AWS CDK (Python)
-│   └── stacks/
-└── research/
-    └── tutorial/      # SageMaker tutorial for classmates
-```
+The system enables clinicians to:
 
-## Setup
+- Upload chest X-rays (DICOM / JPG / PNG)
+- Receive automated risk scoring + findings
+- Ask natural language clinical questions
+- Retrieve evidence-backed answers with citations
 
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- AWS CLI configured (`aws configure`)
-- AWS CDK CLI (`npm install -g aws-cdk`)
-- Docker – The deployment now requires Docker to be installed and running because The `auth_handler` Lambda uses `aws-lambda-python-alpha.PythonFunction`, which automatically installs Python dependencies (e.g., `bcrypt`) inside a Lambda‑compatible Docker container duri
-### Install dependencies
+---
+
+## System Architecture
+
+> Include here an image of the final architecture
+
+---
+
+## Core Components
+
+### 1. AI Imaging Model (SageMaker)
+
+**Model:** CheXOne
+
+**Input:** Chest X-ray (DICOM / image)
+
+**Output:**
+  - LUNA Risk Score (0–100)
+  - Pathology predictions
+  - Bounding boxes
+
+---
+
+### 2. LLM Assistant (Bedrock + RAG)
+
+**Model:** Claude Sonnet 4-5 (Bedrock)
+
+**Pipeline:**
+
+1. User query received
+2. Retrieve documents from OpenSearch (vector search)
+3. Inject:
+   - Patient context (DynamoDB)
+   - Medical literature (RAG)
+4. Generate response via Bedrock
+
+**Output:**
+- Structured clinical response
+- Inline citations `[1], [2], ...`
+
+---
+
+### 3. Storage Layer
+
+LUNA uses multiple AWS storage services depending on the data type.
+
+---
+
+#### Amazon S3
+
+Used for:
+
+- Frontend static files
+- Raw DICOM uploads
+- SageMaker model weights
+
+---
+
+#### Amazon DynamoDB
+
+Used for:
+
+- User data
+- User session data
+- ...
+
+---
+
+## Deployment
+
+### Backend Architecture Deployment
+
+> Install the dependencies
 
 ```bash
-# Infrastructure
-cd infrastructure
-python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# Frontend
-cd frontend
-npm install
 ```
 
-### Deploy
+> Execute the following command in `infrastructure/`
 
 ```bash
-cd infrastructure
-cdk bootstrap
 cdk deploy --all
 ```
 
-## Flow
+> Update the environment variables in a `.env` file located in the root folder.
 
-1. Clinician uploads X-ray via frontend
-2. Image saved to S3 (via pre-signed URL)
-3. S3 event → SQS queue
-4. Inference Lambda reads SQS → invokes SageMaker endpoint
-5. Result written to DynamoDB
-6. Result pushed to frontend via WebSocket (API Gateway Management API)
+**OPENSEARCH_HOST**=Domain endpoint of the created OpenSearch Domain
+**BUCKET_NAME_DICOM**=Name of the bucket create for storing Dicom data
+**NEXT_PUBLIC_API_URL**=REST API base URL found in LunaApiStack/Outputs/
+
+---
+
+### Uploading Frontend Static Files (S3)
+
+> Create your own `.env.local` and update the environment variables.
+
+> Go to `frontend/` and build the Web UI:
+
+```bash
+npm install
+npm run build
+```
+
+> Execute the following command to send the built files to S3:
+
+```bash
+aws s3 sync out/ s3://<BUCKET_NAME_FRONTEND> --delete
+```
+
+---
+
+### Uploading Necessary DynamoDB Data
+
+> Execute the script in `data_ingestion/` to upload some initial instances.
+
+```bash
+python seed_dynamodb.py
+```
+
+* At this moment, only initial users are uploaded  
+  - username: doctor; password: Luna2024!  
+  - username: admin; password: Luna2024!
+* -> we need to update this script
+
+---
+
+### Dicom Data (S3)
+
+> Download the two zip files in Google Drive, unzip them and copy the first five files/folders into `data_ingestion/vindr_dicoms/` and `data_ingestion/vindr_results/`.
+
+> Only the first five have been used (In order to limit the costs of AWS).
+
+> Execute the following command in `data_ingestion/` to upload the data.
+
+```bash
+python seed_dicom.py
+```
+
+---
+
+### Opensearch
+
+> Download the following pdfs from Google Drive.
+
+- **1_ACR Routine Chest Imaging.pdf**
+- **5_1705.02315v5.pdf**
+
+> Move them to `data_ingestion/rag_docs/`.
+
+> Add the following configuration in OpenSearch → Domain → Security configuration (replace placeholders with your own AWS account details).
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::<ACCOUNT_ID>:user/<IAM_USER_NAME>"
+      },
+      "Action": "es:*",
+      "Resource": "arn:aws:es:<REGION>:<ACCOUNT_ID>:domain/<DOMAIN_NAME>/*"
+    }
+  ]
+}
+```
+
+> Execute the following command in `data_ingestion/` to upload the data.
+
+```bash
+python seed_opensearch.py
+```

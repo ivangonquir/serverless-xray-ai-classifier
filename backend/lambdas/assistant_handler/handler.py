@@ -19,23 +19,18 @@ GET /patients/{patientId}/chat
   Returns the conversation history for a patient (FR-5.4).
 """
 
-import hashlib
-import hmac
 import json
 import os
 import re
-import time
+import uuid
 import urllib.parse
 import urllib.request
-import uuid
 from datetime import datetime, timezone
-from boto3.dynamodb.conditions import Key
 
 import boto3
-from boto3.dynamodb.conditions import Key
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
-from botocore.credentials import Credentials
+from boto3.dynamodb.conditions import Key
 
 dynamodb = boto3.resource("dynamodb")
 bedrock = boto3.client("bedrock-runtime", region_name=os.environ.get("AWS_REGION", "us-east-1"))
@@ -49,7 +44,7 @@ audit_log_table = dynamodb.Table(os.environ["AUDIT_LOG_TABLE"])
 OPENSEARCH_ENDPOINT = os.environ["OPENSEARCH_ENDPOINT"]
 OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "luna-docs")
 LLM_SAGEMAKER_ENDPOINT = os.environ.get("LLM_SAGEMAKER_ENDPOINT", "")
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-haiku-4-5")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0")
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -86,18 +81,30 @@ def _handle_query(event: dict, user_id: str):
     # ── Build context ────────────────────────────────────────────────────
     context_parts = []
     citations = []
+    pdf_mention_counts = {}   # 🔥 NEW: track PDF usage
 
     # 1. OpenSearch RAG: retrieve relevant medical literature (FR-5.3)
     rag_docs = _search_opensearch(query_text, top_k=5)
     if rag_docs:
-        context_parts.append("## Relevant Medical Literature\n" + "\n".join(
-            f"[{i+1}] {d['title']}: {d['excerpt']}"
-            for i, d in enumerate(rag_docs)
-        ))
-        citations = [
-            {"index": i + 1, "title": d["title"], "source": d.get("source", ""), "excerpt": d["excerpt"]}
-            for i, d in enumerate(rag_docs)
-        ]
+        context_parts.append(
+            "## Relevant Medical Literature\n" +
+            "\n".join(
+                f"[{i+1}] {d['title']}: {d['excerpt']}"
+                for i, d in enumerate(rag_docs)
+            )
+        )
+
+        for i, d in enumerate(rag_docs):
+            source = d.get("source", "unknown.pdf")
+
+            citations.append({
+                "index": i + 1,
+                "source_id": source,
+                "excerpt": d["excerpt"]
+            })
+
+            # 🔥 COUNT PDF MENTIONS
+            pdf_mention_counts[source] = pdf_mention_counts.get(source, 0) + 1
 
     # 2. Patient-specific context
     if query_type == "patient" and patient_id:
@@ -113,6 +120,7 @@ def _handle_query(event: dict, user_id: str):
 
     # ── Call LLM ─────────────────────────────────────────────────────────
     context_text = "\n\n".join(context_parts)
+
     system_prompt = (
         "You are LUNA, a clinical decision support AI assistant specialised in lung cancer "
         "screening and pulmonary nodule management. You help doctors retrieve patient "
@@ -120,29 +128,53 @@ def _handle_query(event: dict, user_id: str):
         "[N] reference format. Be concise, accurate, and flag any uncertainty explicitly. "
         "Never provide a definitive diagnosis — always recommend clinical judgement."
     )
+
     response_text = _call_llm(system_prompt, context_text, query_text)
 
-    # ── Save to chat history ──────────────────────────────────────────────
+    # ── FORMAT FINAL OUTPUT ──────────────────────────────────────────────
+    final_output = response_text.strip()
+
+    if citations:
+        final_output += "\n\n--------- CITATIONS ---------\n\n"
+        for c in citations:
+            final_output += (
+                f"[{c['index']}] {c['source_id']}\n"
+                f"{_short(c['excerpt'])}\n\n"
+            )
+
+    if pdf_mention_counts:
+        final_output += "\n--------- PDF USAGE STATS ---------\n"
+        for pdf, count in pdf_mention_counts.items():
+            final_output += f"- {pdf}: {count}\n"
+
+    # ── SAVE HISTORY ─────────────────────────────────────────────────────
     now = datetime.now(timezone.utc).isoformat()
+
     chat_history_table.put_item(Item={
         "patientId": patient_id or "population",
         "timestamp": now,
         "userId": user_id,
         "query": query_text,
-        "response": response_text,
+        "response": final_output,
         "citations": citations,
         "queryType": query_type,
+        "pdfMentions": pdf_mention_counts
     })
 
     _write_audit(user_id, "QUERY_ASSISTANT", "ChatQuery", patient_id or "population")
 
     return _resp(200, {
-        "response": response_text,
+        "response": final_output,
         "citations": citations,
         "queryType": query_type,
         "timestamp": now,
+        "pdfMentions": pdf_mention_counts
     })
 
+# Helper function
+def _short(text, max_len=100):
+    text = (text or "").replace("\n", " ").strip()
+    return text[:max_len] + "..." if len(text) > max_len else text
 
 # ── Chat history ──────────────────────────────────────────────────────────
 
@@ -188,14 +220,7 @@ def _get_embedding(text: str) -> list:
         print(f"Embedding generation failed: {exc}")
         return []
 
-
 def _search_opensearch(query_text: str, top_k: int = 5) -> list[dict]:
-    """
-    Sends a KNN vector query to the OpenSearch luna-docs index.
-    The ML team indexes documents with fields: text, source, embedding (1024-dim).
-
-    Returns a list of dicts: [{title, excerpt, source}]
-    """
     if not OPENSEARCH_ENDPOINT:
         return []
 
@@ -209,11 +234,11 @@ def _search_opensearch(query_text: str, top_k: int = 5) -> list[dict]:
             "knn": {
                 "embedding": {
                     "vector": embedding,
-                    "k": top_k,
+                    "k": top_k
                 }
             }
         },
-        "_source": ["text", "source"],
+        "_source": ["text", "source"]
     }).encode("utf-8")
 
     url = f"https://{OPENSEARCH_ENDPOINT}/{OPENSEARCH_INDEX}/_search"
@@ -233,7 +258,7 @@ def _search_opensearch(query_text: str, top_k: int = 5) -> list[dict]:
             headers=dict(request.headers),
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=20) as resp:
             result = json.loads(resp.read())
 
         docs = []
@@ -246,12 +271,12 @@ def _search_opensearch(query_text: str, top_k: int = 5) -> list[dict]:
                 "title": src.get("source", "Medical Literature"),
                 "excerpt": text[:300] + "..." if len(text) > 300 else text,
                 "source": src.get("source", ""),
+                "id": hit.get("_id")
             })
         return docs
     except Exception as exc:
         print(f"OpenSearch query failed: {exc}")
         return []
-
 
 # ── Patient context ───────────────────────────────────────────────────────
 

@@ -41,8 +41,7 @@ class LambdaStack(Stack):
 
         ws_api = websocket_stack.api
         ws_mgmt = websocket_stack.websocket_management_endpoint
-        frontend_url = Fn.import_value("LunaFrontendURL")
-        allowed_origins = f"{frontend_url},http://localhost:3000"
+        # Allowed ORIGINS is removed to solve the circular dependency of stacks
         # ── 1. Auth Handler ──────────────────────────────────────────────
         # POST /auth/login  — validates credentials, issues session token
         # POST /auth/logout — invalidates session
@@ -60,7 +59,6 @@ class LambdaStack(Stack):
                 "SESSIONS_TABLE": storage_stack.sessions_table.table_name,
                 "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
                 "SECRET_NAME": storage_stack.password_secret.secret_name,
-                "ALLOWED_ORIGINS": allowed_origins,
                 "LOGIN_ATTEMPTS_TABLE": storage_stack.login_attempts_table.table_name
             },
         )
@@ -188,11 +186,12 @@ class LambdaStack(Stack):
         # ── 7. Assistant Handler ─────────────────────────────────────────
         # POST /assistant/query       — RAG retrieval + LLM answer + citations
         # GET  /patients/{id}/chat    — chat history for a patient
-        self.assistant_fn = lambda_.Function(
+        self.assistant_fn = lambda_python.PythonFunction(
             self, "LunaAssistantHandler",
             runtime=lambda_.Runtime.PYTHON_3_11,
-            code=lambda_.Code.from_asset("../backend/lambdas/assistant_handler"),
-            handler="handler.lambda_handler",
+            entry="../backend/lambdas/assistant_handler",
+            index="handler.py",
+            handler="lambda_handler",
             timeout=Duration.seconds(30),
             memory_size=1024,
             environment={
@@ -205,7 +204,7 @@ class LambdaStack(Stack):
                 # Set to a SageMaker endpoint name to use the ML team's LLM;
                 # leave empty to fall back to Amazon Bedrock Claude
                 "LLM_SAGEMAKER_ENDPOINT": "",
-                "BEDROCK_MODEL_ID": "anthropic.claude-haiku-4-5",
+                "BEDROCK_MODEL_ID": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
             },
         )
         storage_stack.patients_table.grant_read_data(self.assistant_fn)

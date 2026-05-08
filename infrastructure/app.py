@@ -12,7 +12,7 @@ app = cdk.App()
 
 env = cdk.Environment(
     account=os.getenv("CDK_DEFAULT_ACCOUNT") or app.node.try_get_context("account"),
-    region=os.getenv("CDK_DEFAULT_REGION") or app.node.try_get_context("region") or "us-east-1",
+    region=os.getenv("CDK_DEFAULT_REGION") or app.node.try_get_context("region") or "us-west-1",
 )
 
 # ── Layer 1: Storage ─────────────────────────────────────────────────────
@@ -40,8 +40,6 @@ lambdas = LambdaStack(
     env=env,
 )
 
-
-
 # ── Layer 5: REST API ────────────────────────────────────────────────────
 # API Gateway routes, Lambda authorizer, CORS, rate limiting
 api = ApiStack(app, "LunaApiStack", lambda_stack=lambdas, storage_stack=storage, env=env)
@@ -49,5 +47,10 @@ api = ApiStack(app, "LunaApiStack", lambda_stack=lambdas, storage_stack=storage,
 # ── Layer 6: Frontend Hosting ────────────────────────────────────────────
 # S3 + CloudFront for the React SPA (owned by Team 3)
 frontend = FrontendStack(app, "LunaFrontendStack", env=env)
+
+# Dependency
+lambdas.add_dependency(storage)
+api.add_dependency(lambdas)
+frontend.add_dependency(api)
 
 app.synth()

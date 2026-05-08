@@ -51,9 +51,10 @@ def _log(level, message, action=None, extra=None, trace_id=None):
 
 def _cors_headers(event):
     origin = event.get("headers", {}).get("origin", "")
-    allowed = os.environ.get("ALLOWED_ORIGINS", "").split(",")
-    print(f"CORS DEBUG origin={origin} allowed={allowed}")
-    if origin in allowed:
+    if (
+        origin.endswith(".cloudfront.net")
+        or origin == "http://localhost:3000"
+    ):
         return {
             "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Headers": "Content-Type,Authorization",
