@@ -41,8 +41,14 @@ class LambdaStack(Stack):
 
         ws_api = websocket_stack.api
         ws_mgmt = websocket_stack.websocket_management_endpoint
-        frontend_url = Fn.import_value("LunaFrontendURL")
-        allowed_origins = f"{frontend_url},http://localhost:3000"
+        # ALLOWED_ORIGINS is read from env to avoid a circular dependency
+        # (LambdaStack → FrontendStack → ApiStack → LambdaStack).
+        # After deploying LunaFrontendStack, update the Lambda env vars with
+        # the real CloudFront URL and redeploy LunaLambdaStack.
+        import os
+        allowed_origins = os.environ.get(
+            "ALLOWED_ORIGINS", "http://localhost:3000"
+        )
         # ── 1. Auth Handler ──────────────────────────────────────────────
         # POST /auth/login  — validates credentials, issues session token
         # POST /auth/logout — invalidates session

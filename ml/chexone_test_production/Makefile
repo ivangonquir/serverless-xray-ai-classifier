@@ -71,7 +71,7 @@ copy-weights: ## Copy HuggingFace cache → model_weights/ for S3 packaging
 	if [ -z "$$SNAP" ]; then echo "ERROR: No HF snapshot found. Run inference first to download the model."; exit 1; fi && \
 	echo "Copying from $$SNAP → model_weights/" && \
 	mkdir -p model_weights && \
-	rsync -a --info=progress2 "$$SNAP" model_weights/
+	rsync -aL --info=progress2 "$$SNAP" model_weights/
 	@echo "✓ Weights copied to model_weights/ ($$(du -sh model_weights/ | cut -f1))"
 
 .PHONY: package-model
