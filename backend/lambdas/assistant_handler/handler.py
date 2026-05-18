@@ -311,9 +311,35 @@ def _build_patient_context(patient_id: str) -> str:
             r = results[0]
             lines.append(f"\n## Most Recent Diagnostic Result ({r.get('createdAt', '')})")
             lines.append(f"LUNA Risk Score: {r.get('lunaRiskScore', 'N/A')}")
-            lines.append(f"Nodules detected: {len(r.get('nodulesDetected', []))}")
+
+            # VLM classification label
+            image_pred = r.get("imagePrediction") or {}
+            if image_pred.get("label"):
+                lines.append(f"VLM Assessment: {image_pred['label']} "
+                             f"(malignancy score: {image_pred.get('malignancyScore', 'N/A')})")
+
+            # Full radiology report from CheXOne
+            report_text = image_pred.get("reportText", "")
+            if report_text:
+                lines.append(f"\n### CheXOne Radiology Report\n{report_text}")
+
+            # Individual findings with bounding box evidence
+            nodules = r.get("nodulesDetected", [])
+            if nodules:
+                lines.append(f"\n### Detected Findings ({len(nodules)} total)")
+                for i, n in enumerate(nodules, 1):
+                    finding = n.get("finding", "Unknown finding")
+                    confidence = n.get("confidence", 0)
+                    box_count = len(n.get("boxes", []))
+                    lines.append(
+                        f"  {i}. {finding} "
+                        f"(confidence: {confidence:.0%}, localised in {box_count} region(s))"
+                    )
+            else:
+                lines.append("Findings: None detected")
+
             if r.get("clinicalSummary"):
-                lines.append(f"Summary: {r['clinicalSummary']}")
+                lines.append(f"\n### Clinical Summary\n{r['clinicalSummary']}")
 
         return "\n".join(lines)
     except Exception as exc:
