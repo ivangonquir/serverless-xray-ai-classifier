@@ -107,7 +107,7 @@ export default function PatientBar({ patientId }: PatientBarProps) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".dcm,.jpg,.jpeg,.png"
+                accept=".dcm,.dicom,.jpg,.jpeg,.png"
                 className="hidden"
                 onChange={handleFileChange}
               />
