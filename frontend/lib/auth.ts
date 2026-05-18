@@ -30,13 +30,8 @@ export interface Session {
 /* ── Config ─────────────────────────────────────────────────────────── */
 
 export function getApiBaseUrl(): string {
-  const url = process.env.NEXT_PUBLIC_API_URL;
-  if (!url) {
-    throw new Error(
-      "NEXT_PUBLIC_API_URL is not set. Copy .env.local.example to .env.local and fill in the API URL."
-    );
-  }
-  return url.replace(/\/$/, ""); // strip trailing slash if present
+  const url = process.env.NEXT_PUBLIC_API_URL || "https://elomb6x6wi.execute-api.eu-west-1.amazonaws.com/prod";
+  return url.replace(/\/$/, "");
 }
 
 /* ── Session storage ────────────────────────────────────────────────── */
