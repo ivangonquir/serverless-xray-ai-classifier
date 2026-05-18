@@ -3,6 +3,7 @@ from aws_cdk import (
     RemovalPolicy,
     Duration,
     aws_s3 as s3,
+    aws_s3_deployment as s3deploy,
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
     CfnOutput,
@@ -85,6 +86,16 @@ class FrontendStack(Stack):
                     response_page_path="/index.html",
                 )
             ],
+        )
+
+        # Deploy the built Next.js static export to S3
+        s3deploy.BucketDeployment(
+            self,
+            "DeployFrontend",
+            sources=[s3deploy.Source.asset("../frontend/out")],
+            destination_bucket=frontend_bucket,
+            distribution=distribution,
+            distribution_paths=["/*"],
         )
 
         CfnOutput(self, "FrontendURL",
