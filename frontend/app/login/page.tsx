@@ -9,6 +9,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [userId, setUserId] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,8 +18,9 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      // Calls POST /auth/login on the backend, stores session token in localStorage
-      await login(userId.trim(), password);
+      // Calls POST /auth/login on the backend, stores session token in
+      // localStorage (remember=true) or sessionStorage (remember=false).
+      await login(userId.trim(), password, remember);
       router.push("/dashboard");
     } catch (err) {
       const message =
@@ -159,6 +161,8 @@ export default function LoginPage() {
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-frost">
                   <input
                     type="checkbox"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
                     className="h-3.5 w-3.5 accent-cyan"
                   />
                   Remember session
