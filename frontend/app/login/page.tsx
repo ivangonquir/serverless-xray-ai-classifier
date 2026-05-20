@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LunaMark } from "../components/LunaMark";
+import ConfirmModal from "../components/ConfirmModal";
 import { login } from "../../lib/auth";
 
 export default function LoginPage() {
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [forgotOpen, setForgotOpen] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,12 +169,13 @@ export default function LoginPage() {
                   />
                   Remember session
                 </label>
-                <a
-                  href="#"
+                <button
+                  type="button"
+                  onClick={() => setForgotOpen(true)}
                   className="text-sm text-cyan transition hover:text-cyan-glow"
                 >
                   Forgot password
-                </a>
+                </button>
               </div>
 
               {error && (
@@ -233,6 +236,20 @@ export default function LoginPage() {
           </div>
         </section>
       </div>
+
+      {/* Forgot password — directs the user to their system administrator.
+          Self-service reset is intentionally out of scope: in a clinical
+          setting, identity must be re-verified out-of-band by an admin. */}
+      <ConfirmModal
+        open={forgotOpen}
+        title="PASSWORD RECOVERY"
+        message="For security reasons, password resets must be performed by your system administrator. Please contact admin@luna-cdss.com to recover access to your account."
+        confirmLabel="UNDERSTOOD"
+        variant="default"
+        hideCancel
+        onConfirm={() => setForgotOpen(false)}
+        onCancel={() => setForgotOpen(false)}
+      />
     </main>
   );
 }

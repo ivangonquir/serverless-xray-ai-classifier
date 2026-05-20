@@ -9,6 +9,7 @@ interface ConfirmModalProps {
   confirmLabel?: string;  // defaults to "CONFIRM"
   cancelLabel?: string;   // defaults to "CANCEL"
   variant?: "danger" | "default"; // styles the confirm button
+  hideCancel?: boolean;   // hide the cancel button (for info-only modals)
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -18,8 +19,11 @@ interface ConfirmModalProps {
  *
  * Behavior:
  *   - Renders a full-screen backdrop that dims the page behind it.
- *   - Closes on Escape key.
- *   - Closes on backdrop click (calling onCancel).
+ *   - Closes on Escape key (calls onCancel).
+ *   - Closes on backdrop click (calls onCancel).
+ *   - When `hideCancel` is true, only the confirm button is shown. The
+ *     dialog still closes on Escape / backdrop click, so onCancel should
+ *     usually be wired to the same handler as onConfirm in that mode.
  *   - Returns null when `open` is false so it has no DOM cost when hidden.
  */
 export default function ConfirmModal({
@@ -29,6 +33,7 @@ export default function ConfirmModal({
   confirmLabel = "CONFIRM",
   cancelLabel = "CANCEL",
   variant = "default",
+  hideCancel = false,
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
@@ -81,12 +86,14 @@ export default function ConfirmModal({
         <p className="mb-8 font-sans text-base text-ice">{message}</p>
 
         <div className="flex items-center justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="rounded-lg border border-steel bg-deepnavy px-5 py-2.5 font-display text-[11px] font-semibold tracking-[0.2em] text-frost transition hover:border-mist hover:text-ice"
-          >
-            {cancelLabel}
-          </button>
+          {!hideCancel && (
+            <button
+              onClick={onCancel}
+              className="rounded-lg border border-steel bg-deepnavy px-5 py-2.5 font-display text-[11px] font-semibold tracking-[0.2em] text-frost transition hover:border-mist hover:text-ice"
+            >
+              {cancelLabel}
+            </button>
+          )}
           <button
             onClick={onConfirm}
             autoFocus
