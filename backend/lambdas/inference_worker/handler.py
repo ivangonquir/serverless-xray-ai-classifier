@@ -43,9 +43,50 @@ SAGEMAKER_ENDPOINT = os.environ["SAGEMAKER_ENDPOINT"]
 DICOM_BUCKET = os.environ["DICOM_BUCKET"]
 
 
+CORS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization",
+    "Content-Type": "application/json",
+}
+
+
 def lambda_handler(event, context):
+    # HTTP request from API Gateway — serve presigned image URL
+    if "httpMethod" in event:
+        return _handle_http(event)
+    # SQS event — run the inference pipeline
     for record in event["Records"]:
         _process_record(record)
+
+
+def _handle_http(event: dict) -> dict:
+    """
+    GET /patients/{patientId}/image-url
+    Returns a 1-hour presigned S3 GET URL for the patient's latest scan image.
+    """
+    path_params = event.get("pathParameters") or {}
+    patient_id = path_params.get("patientId")
+    if not patient_id:
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "patientId required"})}
+
+    resp = results_table.query(
+        IndexName="PatientIdIndex",
+        KeyConditionExpression="patientId = :pid",
+        ExpressionAttributeValues={":pid": patient_id},
+        ScanIndexForward=False,
+        Limit=1,
+    )
+    items = resp.get("Items", [])
+    if not items or not items[0].get("s3Key"):
+        return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "No image found"})}
+
+    s3_key = items[0]["s3Key"]
+    url = s3_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": DICOM_BUCKET, "Key": s3_key},
+        ExpiresIn=3600,
+    )
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"imageUrl": url, "s3Key": s3_key})}
 
 
 def _process_record(sqs_record: dict):
@@ -129,7 +170,7 @@ def _run_pipeline(job_id: str, patient_id: str, s3_key: str, connection_id: str)
         UpdateExpression=(
             "SET #st = :st, lunaRiskScore = :score, nodulesDetected = :nod, "
             "imagePrediction = :ip, clinicalFactors = :cf, "
-            "clinicalSummary = :cs, completedAt = :ts"
+            "clinicalSummary = :cs, completedAt = :ts, s3Key = :sk"
         ),
         ExpressionAttributeNames={"#st": "status"},
         ExpressionAttributeValues={
@@ -140,6 +181,7 @@ def _run_pipeline(job_id: str, patient_id: str, s3_key: str, connection_id: str)
             ":cf": clinical_factors,
             ":cs": clinical_summary,
             ":ts": now,
+            ":sk": s3_key,
         },
     )
 

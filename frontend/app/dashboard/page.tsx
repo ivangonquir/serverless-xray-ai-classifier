@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Sidebar from "../components/Sidebar";
 import ChatInterface from "../components/ChatInterface";
 import PatientBar from "../components/PatientBar";
+import PatientWorkspace from "../components/PatientWorkspace";
 import { getSession } from "../../lib/auth";
 
 export default function DashboardPage() {
@@ -49,6 +50,7 @@ export default function DashboardPage() {
 
         <div className="relative flex flex-1 flex-col overflow-hidden">
           {selectedPatientId && <PatientBar patientId={selectedPatientId} />}
+          {selectedPatientId && <PatientWorkspace patientId={selectedPatientId} />}
           <ChatInterface selectedPatientId={selectedPatientId} />
         </div>
       </main>

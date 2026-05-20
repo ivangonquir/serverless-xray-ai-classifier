@@ -17,9 +17,11 @@ import boto3
 from boto3.dynamodb.conditions import Attr
 
 dynamodb = boto3.resource("dynamodb")
+s3_client = boto3.client("s3")
 patients_table = dynamodb.Table(os.environ["PATIENTS_TABLE"])
 results_table = dynamodb.Table(os.environ["DIAGNOSTIC_RESULTS_TABLE"])
 audit_log_table = dynamodb.Table(os.environ["AUDIT_LOG_TABLE"])
+DICOM_BUCKET = os.environ.get("DICOM_BUCKET", "")
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -77,10 +79,24 @@ def _get_patient(patient_id: str, user_id: str):
     # Fetch the most recent diagnostic result for context (FR-UI 2.1)
     latest_result = _get_latest_result(patient_id)
 
+    serialized_result = None
+    if latest_result:
+        serialized_result = _serialize(latest_result)
+        s3_key = latest_result.get("s3Key")
+        if s3_key and DICOM_BUCKET:
+            try:
+                serialized_result["imageUrl"] = s3_client.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": DICOM_BUCKET, "Key": s3_key},
+                    ExpiresIn=3600,
+                )
+            except Exception:
+                pass
+
     _write_audit(user_id, "VIEW_PATIENT", "Patient", patient_id)
     return _resp(200, {
         "patient": _serialize(patient),
-        "latestResult": _serialize(latest_result) if latest_result else None,
+        "latestResult": serialized_result,
     })
 
 

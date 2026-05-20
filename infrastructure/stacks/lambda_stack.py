@@ -83,11 +83,13 @@ class LambdaStack(Stack):
                 "PATIENTS_TABLE": storage_stack.patients_table.table_name,
                 "DIAGNOSTIC_RESULTS_TABLE": storage_stack.diagnostic_results_table.table_name,
                 "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+                "DICOM_BUCKET": storage_stack.dicom_bucket.bucket_name,
             },
         )
         storage_stack.patients_table.grant_read_write_data(self.patient_fn)
         storage_stack.diagnostic_results_table.grant_read_data(self.patient_fn)
         storage_stack.audit_log_table.grant_write_data(self.patient_fn)
+        storage_stack.dicom_bucket.grant_read(self.patient_fn)
 
         # ── 4. Upload Handler ────────────────────────────────────────────
         # POST /patients/{id}/upload
