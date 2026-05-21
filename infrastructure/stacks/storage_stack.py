@@ -29,7 +29,7 @@ class StorageStack(Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             cors=[s3.CorsRule(
                 allowed_methods=[s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-                allowed_origins=["*"],
+                allowed_origins=["https://*.cloudfront.net", "http://localhost:3000"],
                 allowed_headers=["*"],
                 max_age=3000,
             )],
@@ -175,8 +175,11 @@ class StorageStack(Stack):
                 name="timestamp", type=dynamodb.AttributeType.STRING
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            removal_policy=RemovalPolicy.DESTROY,
+            removal_policy=RemovalPolicy.RETAIN,
             encryption=dynamodb.TableEncryption.AWS_MANAGED,
+            point_in_time_recovery=True,
+            deletion_protection=True,
+            time_to_live_attribute="expiresAt",
         )
         self.audit_log_table.add_global_secondary_index(
             index_name="UserIdIndex",

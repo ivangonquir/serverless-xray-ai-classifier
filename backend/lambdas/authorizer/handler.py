@@ -29,12 +29,15 @@ audit_log_table = dynamodb.Table(os.environ["AUDIT_LOG_TABLE"])
 # ── SECURITY HARDENING ──
 SESSION_EXTEND_THRESHOLD = int(os.environ.get("SESSION_EXTEND_THRESHOLD", "3600"))
 SESSION_TTL_SECONDS = 86400  # 24 h, must match the value set during login
+AUDIT_RETENTION_SECONDS = int(os.environ.get("AUDIT_RETENTION_SECONDS", str(7 * 365 * 24 * 60 * 60)))
 
 
 def lambda_handler(event, context):
+    method_arn = event.get("methodArn", "*")
     token = _extract_token(event.get("authorizationToken", ""))
     if not token:
         print(json.dumps({"msg": "Missing token", "level": "WARN"}))
+        _write_audit("unknown", method_arn, 401, "AUTH_DENIED: missing token")
         raise Exception("Unauthorized")
 
     # Log token prefix only (avoid full token leakage)
@@ -44,6 +47,7 @@ def lambda_handler(event, context):
     session = _get_session(token)
     if not session:
         print(json.dumps({"msg": "Session not found", "tokenPrefix": safe_token, "level": "WARN"}))
+        _write_audit("unknown", method_arn, 401, "AUTH_DENIED: session not found")
         raise Exception("Unauthorized")
 
     user_id = session["userId"]
@@ -60,6 +64,7 @@ def lambda_handler(event, context):
             "now": current_epoch,
             "level": "WARN"
         }))
+        _write_audit(user_id, method_arn, 401, "AUTH_DENIED: token expired")
         raise Exception("Unauthorized")
 
     # ── Silent session extension if close to expiry ──
@@ -97,8 +102,7 @@ def lambda_handler(event, context):
             "threshold": SESSION_EXTEND_THRESHOLD
         }))
 
-    method_arn = event.get("methodArn", "*")
-    _write_audit(user_id, method_arn)
+    _write_audit(user_id, method_arn, 200)
 
     # Final success log
     print(json.dumps({
@@ -141,19 +145,21 @@ def _get_session(token: str) -> dict | None:
         return None
 
 
-def _write_audit(user_id: str, method_arn: str):
+def _write_audit(user_id: str, method_arn: str, status_code: int = 200, action: str | None = None):
     try:
-        now = datetime.now(timezone.utc).isoformat()
+        now_epoch = int(time.time())
+        now = datetime.fromtimestamp(now_epoch, timezone.utc).isoformat()
         parts = method_arn.split("/")
-        action = f"{parts[-2]} /{parts[-1]}" if len(parts) >= 2 else method_arn
+        route_action = f"{parts[-2]} /{parts[-1]}" if len(parts) >= 2 else method_arn
         audit_log_table.put_item(Item={
             "logId": str(uuid.uuid4()),
             "timestamp": now,
             "userId": user_id,
-            "action": f"API_ACCESS: {action}",
+            "action": action or f"API_ACCESS: {route_action}",
             "resourceType": "REST_API",
             "resourceId": method_arn,
-            "statusCode": 200,
+            "statusCode": status_code,
+            "expiresAt": now_epoch + AUDIT_RETENTION_SECONDS,
         })
     except Exception:
         pass   # audit never blocks the request

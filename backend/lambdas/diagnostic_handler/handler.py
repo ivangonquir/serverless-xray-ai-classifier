@@ -13,6 +13,7 @@ GET  /patients/{patientId}/results
 
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -28,11 +29,7 @@ audit_log_table = dynamodb.Table(os.environ["AUDIT_LOG_TABLE"])
 
 DIAGNOSTIC_QUEUE_URL = os.environ["DIAGNOSTIC_QUEUE_URL"]
 
-CORS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-    "Content-Type": "application/json",
-}
+AUDIT_RETENTION_SECONDS = int(os.environ.get("AUDIT_RETENTION_SECONDS", str(7 * 365 * 24 * 60 * 60)))
 
 
 def lambda_handler(event, context):
@@ -43,14 +40,16 @@ def lambda_handler(event, context):
     user_id = (event.get("requestContext", {}).get("authorizer") or {}).get("userId", "unknown")
 
     if not patient_id:
-        return _resp(400, {"error": "patientId is required"})
+        _write_audit(user_id, "DIAGNOSIS_REQUEST", "DiagnosticJob", "missing-patient-id", 400)
+        return _resp(400, {"error": "patientId is required"}, event)
 
     if method == "POST" and path.endswith("/diagnose"):
         return _trigger_diagnosis(event, patient_id, user_id)
     if method == "GET" and path.endswith("/results"):
-        return _get_results(patient_id, user_id)
+        return _get_results(patient_id, user_id, event)
 
-    return _resp(404, {"error": "Not found"})
+    _write_audit(user_id, "ROUTE_NOT_FOUND", "DiagnosticJob", patient_id, 404, patient_id)
+    return _resp(404, {"error": "Not found"}, event)
 
 
 # ── Trigger diagnosis ─────────────────────────────────────────────────────
@@ -59,18 +58,21 @@ def _trigger_diagnosis(event: dict, patient_id: str, user_id: str):
     # FR-2.1: Input validation
     patient_resp = patients_table.get_item(Key={"patientId": patient_id})
     if not patient_resp.get("Item"):
-        return _resp(404, {"error": f"Patient {patient_id} not found"})
+        _write_audit(user_id, "TRIGGER_DIAGNOSIS", "DiagnosticJob", patient_id, 404, patient_id)
+        return _resp(404, {"error": f"Patient {patient_id} not found"}, event)
 
     body = _parse_body(event)
     s3_key = body.get("s3Key")
     connection_id = body.get("connectionId", "")
 
     if not s3_key:
-        return _resp(400, {"error": "s3Key is required (path of the uploaded DICOM in S3)"})
+        _write_audit(user_id, "TRIGGER_DIAGNOSIS", "DiagnosticJob", patient_id, 400, patient_id)
+        return _resp(400, {"error": "s3Key is required (path of the uploaded DICOM in S3)"}, event)
 
     # Validate key belongs to this patient
     if not s3_key.startswith(f"uploads/{patient_id}/"):
-        return _resp(400, {"error": "s3Key does not belong to this patient"})
+        _write_audit(user_id, "TRIGGER_DIAGNOSIS", "DiagnosticJob", s3_key, 400, patient_id)
+        return _resp(400, {"error": "s3Key does not belong to this patient"}, event)
 
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
@@ -113,18 +115,18 @@ def _trigger_diagnosis(event: dict, patient_id: str, user_id: str):
         }),
     )
 
-    _write_audit(user_id, "TRIGGER_DIAGNOSIS", "DiagnosticJob", job_id, patient_id)
+    _write_audit(user_id, "TRIGGER_DIAGNOSIS", "DiagnosticJob", job_id, 202, patient_id)
 
     return _resp(202, {
         "jobId": job_id,
         "status": "QUEUED",
         "message": "Diagnostic job queued. Results will be pushed via WebSocket when complete.",
-    })
+    }, event)
 
 
 # ── Get results ───────────────────────────────────────────────────────────
 
-def _get_results(patient_id: str, user_id: str):
+def _get_results(patient_id: str, user_id: str, event: dict):
     """Returns all diagnostic jobs for a patient, sorted newest first."""
     resp = results_table.query(
         IndexName="PatientIdIndex",
@@ -143,13 +145,13 @@ def _get_results(patient_id: str, user_id: str):
         )
         results.extend(resp.get("Items", []))
 
-    _write_audit(user_id, "VIEW_RESULTS", "DiagnosticJob", patient_id, patient_id)
+    _write_audit(user_id, "VIEW_RESULTS", "DiagnosticJob", patient_id, 200, patient_id)
 
     return _resp(200, {
         "patientId": patient_id,
         "results": [_serialize(r) for r in results],
         "count": len(results),
-    })
+    }, event)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -170,10 +172,12 @@ def _write_audit(
     action: str,
     resource_type: str,
     resource_id: str,
+    status_code: int = 200,
     patient_id: str = "",
 ):
     try:
-        now = datetime.now(timezone.utc).isoformat()
+        now_epoch = int(time.time())
+        now = datetime.fromtimestamp(now_epoch, timezone.utc).isoformat()
         audit_log_table.put_item(Item={
             "logId": str(uuid.uuid4()),
             "timestamp": now,
@@ -182,7 +186,8 @@ def _write_audit(
             "resourceType": resource_type,
             "resourceId": resource_id,
             "patientId": patient_id,
-            "statusCode": 200,
+            "statusCode": status_code,
+            "expiresAt": now_epoch + AUDIT_RETENTION_SECONDS,
         })
     except Exception:
         pass
@@ -195,9 +200,40 @@ def _parse_body(event: dict) -> dict:
         return {}
 
 
-def _resp(status: int, body: dict) -> dict:
+def _cors_headers(event: dict | None) -> dict:
+    if not event:
+        return {"Content-Type": "application/json", "Vary": "Origin"}
+    headers = event.get("headers") or {}
+    origin = headers.get("origin") or headers.get("Origin") or ""
+    if _is_allowed_origin(origin):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Headers": "Content-Type,Authorization",
+            "Access-Control-Allow-Methods": "OPTIONS,GET,POST",
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+            "Content-Type": "application/json",
+        }
+    return {"Content-Type": "application/json", "Vary": "Origin"}
+
+
+def _is_allowed_origin(origin: str) -> bool:
+    normalized = (origin or "").rstrip("/")
+    normalized_lower = normalized.lower()
+    if normalized_lower.startswith("https://") and normalized_lower.endswith(".cloudfront.net"):
+        return True
+
+    allowed_origins = {
+        value.strip().rstrip("/")
+        for value in os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        if value.strip()
+    }
+    return normalized in allowed_origins
+
+
+def _resp(status: int, body: dict, event: dict | None = None) -> dict:
     return {
         "statusCode": status,
-        "headers": CORS,
+        "headers": _cors_headers(event),
         "body": json.dumps(body, default=str),
     }

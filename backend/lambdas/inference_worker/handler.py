@@ -43,13 +43,6 @@ SAGEMAKER_ENDPOINT = os.environ["SAGEMAKER_ENDPOINT"]
 DICOM_BUCKET = os.environ["DICOM_BUCKET"]
 
 
-CORS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-    "Content-Type": "application/json",
-}
-
-
 def lambda_handler(event, context):
     # HTTP request from API Gateway — serve presigned image URL
     if "httpMethod" in event:
@@ -67,7 +60,7 @@ def _handle_http(event: dict) -> dict:
     path_params = event.get("pathParameters") or {}
     patient_id = path_params.get("patientId")
     if not patient_id:
-        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "patientId required"})}
+        return _http_resp(400, {"error": "patientId required"}, event)
 
     resp = results_table.query(
         IndexName="PatientIdIndex",
@@ -78,7 +71,7 @@ def _handle_http(event: dict) -> dict:
     )
     items = resp.get("Items", [])
     if not items or not items[0].get("s3Key"):
-        return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "No image found"})}
+        return _http_resp(404, {"error": "No image found"}, event)
 
     s3_key = items[0]["s3Key"]
     url = s3_client.generate_presigned_url(
@@ -86,7 +79,46 @@ def _handle_http(event: dict) -> dict:
         Params={"Bucket": DICOM_BUCKET, "Key": s3_key},
         ExpiresIn=3600,
     )
-    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"imageUrl": url, "s3Key": s3_key})}
+    return _http_resp(200, {"imageUrl": url, "s3Key": s3_key}, event)
+
+
+def _cors_headers(event: dict | None) -> dict:
+    if not event:
+        return {"Content-Type": "application/json", "Vary": "Origin"}
+    headers = event.get("headers") or {}
+    origin = headers.get("origin") or headers.get("Origin") or ""
+    if _is_allowed_origin(origin):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Headers": "Content-Type,Authorization",
+            "Access-Control-Allow-Methods": "OPTIONS,GET",
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+            "Content-Type": "application/json",
+        }
+    return {"Content-Type": "application/json", "Vary": "Origin"}
+
+
+def _is_allowed_origin(origin: str) -> bool:
+    normalized = (origin or "").rstrip("/")
+    normalized_lower = normalized.lower()
+    if normalized_lower.startswith("https://") and normalized_lower.endswith(".cloudfront.net"):
+        return True
+
+    allowed_origins = {
+        value.strip().rstrip("/")
+        for value in os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        if value.strip()
+    }
+    return normalized in allowed_origins
+
+
+def _http_resp(status: int, body: dict, event: dict | None = None) -> dict:
+    return {
+        "statusCode": status,
+        "headers": _cors_headers(event),
+        "body": json.dumps(body),
+    }
 
 
 def _process_record(sqs_record: dict):

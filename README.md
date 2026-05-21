@@ -102,6 +102,13 @@ pip install -r requirements.txt
 cdk deploy --all
 ```
 
+By default, backend responses allow local development and any CloudFront distribution origin:
+
+* `http://localhost:3000`
+* `https://*.cloudfront.net`
+
+Use the `allowed_origins` CDK context only for additional exact origins, such as a custom frontend domain.
+
 > Update the environment variables in a `.env` file located in the root folder.
 
 **OPENSEARCH_HOST**=Domain endpoint of the created OpenSearch Domain
@@ -131,16 +138,15 @@ aws s3 sync out/ s3://<BUCKET_NAME_FRONTEND> --delete
 
 ### Uploading Necessary DynamoDB Data
 
-> Execute the script in `data_ingestion/` to upload some initial instances.
+> Execute the script in `data_ingestion/` to upload initial data for local development only.
 
 ```bash
 python seed_dynamodb.py
 ```
 
-* At this moment, only initial users are uploaded  
-  - username: doctor; password: Luna2024!  
-  - username: admin; password: Luna2024!
-* -> we need to update this script
+* Do not keep demo credentials in source control or production environments.
+* The `/auth/seed` API route is protected and disabled by default. If you enable it for a controlled dev environment, send explicit users in the request body and rotate/delete them afterwards.
+* For the helper script, set `SEED_AUTH_TOKEN` and `SEED_USERS_JSON` in your local environment.
 
 ---
 

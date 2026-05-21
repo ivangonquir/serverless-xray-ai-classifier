@@ -22,6 +22,7 @@ GET /patients/{patientId}/chat
 import json
 import os
 import re
+import time
 import uuid
 import urllib.parse
 import urllib.request
@@ -46,11 +47,7 @@ OPENSEARCH_INDEX = os.environ.get("OPENSEARCH_INDEX", "luna-docs")
 LLM_SAGEMAKER_ENDPOINT = os.environ.get("LLM_SAGEMAKER_ENDPOINT", "")
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0")
 
-CORS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-    "Content-Type": "application/json",
-}
+AUDIT_RETENTION_SECONDS = int(os.environ.get("AUDIT_RETENTION_SECONDS", str(7 * 365 * 24 * 60 * 60)))
 
 
 def lambda_handler(event, context):
@@ -62,9 +59,10 @@ def lambda_handler(event, context):
     if method == "POST" and path.endswith("/query"):
         return _handle_query(event, user_id)
     if method == "GET" and path.endswith("/chat"):
-        return _get_chat_history(path_params.get("patientId", ""), user_id)
+        return _get_chat_history(path_params.get("patientId", ""), user_id, event)
 
-    return _resp(404, {"error": "Not found"})
+    _write_audit(user_id, "ROUTE_NOT_FOUND", "Assistant", path or "unknown", 404)
+    return _resp(404, {"error": "Not found"}, event)
 
 
 # ── Query handler ─────────────────────────────────────────────────────────
@@ -76,7 +74,8 @@ def _handle_query(event: dict, user_id: str):
     patient_id = body.get("patientId", "")
 
     if not query_text:
-        return _resp(400, {"error": "query is required"})
+        _write_audit(user_id, "QUERY_ASSISTANT", "ChatQuery", patient_id or "population", 400)
+        return _resp(400, {"error": "query is required"}, event)
 
     # ── Build context ────────────────────────────────────────────────────
     context_parts = []
@@ -161,7 +160,7 @@ def _handle_query(event: dict, user_id: str):
         "pdfMentions": pdf_mention_counts
     })
 
-    _write_audit(user_id, "QUERY_ASSISTANT", "ChatQuery", patient_id or "population")
+    _write_audit(user_id, "QUERY_ASSISTANT", "ChatQuery", patient_id or "population", 200)
 
     return _resp(200, {
         "response": final_output,
@@ -169,7 +168,7 @@ def _handle_query(event: dict, user_id: str):
         "queryType": query_type,
         "timestamp": now,
         "pdfMentions": pdf_mention_counts
-    })
+    }, event)
 
 # Helper function
 def _short(text, max_len=100):
@@ -178,9 +177,10 @@ def _short(text, max_len=100):
 
 # ── Chat history ──────────────────────────────────────────────────────────
 
-def _get_chat_history(patient_id: str, user_id: str):
+def _get_chat_history(patient_id: str, user_id: str, event: dict):
     if not patient_id:
-        return _resp(400, {"error": "patientId is required"})
+        _write_audit(user_id, "VIEW_CHAT_HISTORY", "ChatHistory", "missing-patient-id", 400)
+        return _resp(400, {"error": "patientId is required"}, event)
 
     resp = chat_history_table.query(
         KeyConditionExpression=Key("patientId").eq(patient_id),
@@ -189,11 +189,11 @@ def _get_chat_history(patient_id: str, user_id: str):
     )
     messages = resp.get("Items", [])
 
-    _write_audit(user_id, "VIEW_CHAT_HISTORY", "ChatHistory", patient_id)
+    _write_audit(user_id, "VIEW_CHAT_HISTORY", "ChatHistory", patient_id, 200)
     return _resp(200, {
         "patientId": patient_id,
         "messages": messages,
-    })
+    }, event)
 
 
 # ── OpenSearch RAG retrieval ──────────────────────────────────────────────
@@ -507,9 +507,10 @@ def _call_bedrock(system_prompt: str, context: str, query: str) -> str:
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
-def _write_audit(user_id: str, action: str, resource_type: str, resource_id: str):
+def _write_audit(user_id: str, action: str, resource_type: str, resource_id: str, status_code: int = 200):
     try:
-        now = datetime.now(timezone.utc).isoformat()
+        now_epoch = int(time.time())
+        now = datetime.fromtimestamp(now_epoch, timezone.utc).isoformat()
         audit_log_table.put_item(Item={
             "logId": str(uuid.uuid4()),
             "timestamp": now,
@@ -517,7 +518,8 @@ def _write_audit(user_id: str, action: str, resource_type: str, resource_id: str
             "action": action,
             "resourceType": resource_type,
             "resourceId": resource_id,
-            "statusCode": 200,
+            "statusCode": status_code,
+            "expiresAt": now_epoch + AUDIT_RETENTION_SECONDS,
         })
     except Exception:
         pass
@@ -530,10 +532,41 @@ def _parse_body(event: dict) -> dict:
         return {}
 
 
-def _resp(status: int, body: dict) -> dict:
+def _cors_headers(event: dict | None) -> dict:
+    if not event:
+        return {"Content-Type": "application/json", "Vary": "Origin"}
+    headers = event.get("headers") or {}
+    origin = headers.get("origin") or headers.get("Origin") or ""
+    if _is_allowed_origin(origin):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Headers": "Content-Type,Authorization",
+            "Access-Control-Allow-Methods": "OPTIONS,GET,POST",
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+            "Content-Type": "application/json",
+        }
+    return {"Content-Type": "application/json", "Vary": "Origin"}
+
+
+def _is_allowed_origin(origin: str) -> bool:
+    normalized = (origin or "").rstrip("/")
+    normalized_lower = normalized.lower()
+    if normalized_lower.startswith("https://") and normalized_lower.endswith(".cloudfront.net"):
+        return True
+
+    allowed_origins = {
+        value.strip().rstrip("/")
+        for value in os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        if value.strip()
+    }
+    return normalized in allowed_origins
+
+
+def _resp(status: int, body: dict, event: dict | None = None) -> dict:
     return {
         "statusCode": status,
-        "headers": CORS,
+        "headers": _cors_headers(event),
         "body": json.dumps(body, default=str),
     }
 

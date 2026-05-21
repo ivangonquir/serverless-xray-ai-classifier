@@ -41,6 +41,8 @@ class LambdaStack(Stack):
 
         ws_api = websocket_stack.api
         ws_mgmt = websocket_stack.websocket_management_endpoint
+        allowed_origins = self._allowed_origins()
+        audit_retention_seconds = "220752000"  # 7 years
         # Allowed ORIGINS is removed to solve the circular dependency of stacks
         # ── 1. Auth Handler ──────────────────────────────────────────────
         # POST /auth/login  — validates credentials, issues session token
@@ -59,7 +61,12 @@ class LambdaStack(Stack):
                 "SESSIONS_TABLE": storage_stack.sessions_table.table_name,
                 "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
                 "SECRET_NAME": storage_stack.password_secret.secret_name,
-                "LOGIN_ATTEMPTS_TABLE": storage_stack.login_attempts_table.table_name
+                "LOGIN_ATTEMPTS_TABLE": storage_stack.login_attempts_table.table_name,
+                "ALLOWED_ORIGINS": allowed_origins,
+                "AUDIT_RETENTION_SECONDS": audit_retention_seconds,
+                "ENABLE_SEED_ENDPOINT": str(
+                    self.node.try_get_context("enable_seed_endpoint") or "false"
+                ).lower(),
             },
         )
         storage_stack.password_secret.grant_read(self.auth_fn)
@@ -84,6 +91,8 @@ class LambdaStack(Stack):
                 "DIAGNOSTIC_RESULTS_TABLE": storage_stack.diagnostic_results_table.table_name,
                 "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
                 "DICOM_BUCKET": storage_stack.dicom_bucket.bucket_name,
+                "ALLOWED_ORIGINS": allowed_origins,
+                "AUDIT_RETENTION_SECONDS": audit_retention_seconds,
             },
         )
         storage_stack.patients_table.grant_read_write_data(self.patient_fn)
@@ -106,6 +115,8 @@ class LambdaStack(Stack):
                 "DICOM_BUCKET": storage_stack.dicom_bucket.bucket_name,
                 "PATIENTS_TABLE": storage_stack.patients_table.table_name,
                 "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+                "ALLOWED_ORIGINS": allowed_origins,
+                "AUDIT_RETENTION_SECONDS": audit_retention_seconds,
             },
         )
         storage_stack.dicom_bucket.grant_put(self.upload_fn)
@@ -128,6 +139,8 @@ class LambdaStack(Stack):
                 "DIAGNOSTIC_QUEUE_URL": storage_stack.diagnostic_queue.queue_url,
                 "CONNECTIONS_TABLE": storage_stack.connections_table.table_name,
                 "AUDIT_LOG_TABLE": storage_stack.audit_log_table.table_name,
+                "ALLOWED_ORIGINS": allowed_origins,
+                "AUDIT_RETENTION_SECONDS": audit_retention_seconds,
             },
         )
         storage_stack.patients_table.grant_read_write_data(self.diagnostic_fn)
@@ -153,6 +166,7 @@ class LambdaStack(Stack):
                 "SAGEMAKER_ENDPOINT": "chexone-async",  # ML team deploys this endpoint independently
                 "WEBSOCKET_ENDPOINT": ws_mgmt,
                 "CONNECTIONS_TABLE": storage_stack.connections_table.table_name,
+                "ALLOWED_ORIGINS": allowed_origins,
             },
         )
         storage_stack.patients_table.grant_read_data(inference_fn)
@@ -207,6 +221,8 @@ class LambdaStack(Stack):
                 # leave empty to fall back to Amazon Bedrock Claude
                 "LLM_SAGEMAKER_ENDPOINT": "",
                 "BEDROCK_MODEL_ID": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "ALLOWED_ORIGINS": allowed_origins,
+                "AUDIT_RETENTION_SECONDS": audit_retention_seconds,
             },
         )
         storage_stack.patients_table.grant_read_data(self.assistant_fn)
@@ -263,6 +279,14 @@ class LambdaStack(Stack):
         CfnOutput(self, "AssistantFunctionName", value=self.assistant_fn.function_name)
 
     # ── Helpers ──────────────────────────────────────────────────────────
+
+    def _allowed_origins(self) -> str:
+        configured = self.node.try_get_context("allowed_origins") or "http://localhost:3000"
+        if isinstance(configured, list):
+            origins = configured
+        else:
+            origins = [origin.strip() for origin in str(configured).split(",")]
+        return ",".join(origin for origin in origins if origin)
 
     def _add_websocket_route(
         self,

@@ -15,6 +15,7 @@ InferenceWorker Lambda.
 
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -28,11 +29,8 @@ audit_log_table = dynamodb.Table(os.environ["AUDIT_LOG_TABLE"])
 DICOM_BUCKET = os.environ["DICOM_BUCKET"]
 PRESIGN_EXPIRY_SECONDS = 300  # 5 minutes
 
-CORS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-    "Content-Type": "application/json",
-}
+AUDIT_RETENTION_SECONDS = int(os.environ.get("AUDIT_RETENTION_SECONDS", str(7 * 365 * 24 * 60 * 60)))
+ALLOWED_EXTENSIONS = {"dcm", "jpg", "jpeg", "png"}
 
 
 def lambda_handler(event, context):
@@ -41,17 +39,22 @@ def lambda_handler(event, context):
     user_id = (event.get("requestContext", {}).get("authorizer") or {}).get("userId", "unknown")
 
     if not patient_id:
-        return _resp(400, {"error": "patientId is required"})
+        _write_audit(user_id, "UPLOAD_DICOM", "S3Object", "missing-patient-id", 400)
+        return _resp(400, {"error": "patientId is required"}, event)
 
     # Verify patient exists
     resp = patients_table.get_item(Key={"patientId": patient_id})
     if not resp.get("Item"):
-        return _resp(404, {"error": f"Patient {patient_id} not found"})
+        _write_audit(user_id, "UPLOAD_DICOM", "S3Object", f"uploads/{patient_id}/", 404, patient_id)
+        return _resp(404, {"error": f"Patient {patient_id} not found"}, event)
 
     body = _parse_body(event)
     # Allow callers to specify the file extension; default to .dcm for CT scans
     file_extension = body.get("fileExtension", "dcm").lstrip(".").lower()
     connection_id = body.get("connectionId", "")  # WebSocket ID for result push
+    if file_extension not in ALLOWED_EXTENSIONS:
+        _write_audit(user_id, "UPLOAD_DICOM", "S3Object", f"uploads/{patient_id}/", 400, patient_id)
+        return _resp(400, {"error": "Unsupported file extension"}, event)
 
     job_id = str(uuid.uuid4())
     s3_key = f"uploads/{patient_id}/{job_id}.{file_extension}"
@@ -74,14 +77,14 @@ def lambda_handler(event, context):
         ExpiresIn=PRESIGN_EXPIRY_SECONDS,
     )
 
-    _write_audit(user_id, "UPLOAD_DICOM", "S3Object", s3_key, patient_id)
+    _write_audit(user_id, "UPLOAD_DICOM", "S3Object", s3_key, 200, patient_id)
 
     return _resp(200, {
         "uploadUrl": presigned_url,
         "jobId": job_id,
         "s3Key": s3_key,
         "expiresInSeconds": PRESIGN_EXPIRY_SECONDS,
-    })
+    }, event)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -101,10 +104,12 @@ def _write_audit(
     action: str,
     resource_type: str,
     resource_id: str,
+    status_code: int = 200,
     patient_id: str = "",
 ):
     try:
-        now = datetime.now(timezone.utc).isoformat()
+        now_epoch = int(time.time())
+        now = datetime.fromtimestamp(now_epoch, timezone.utc).isoformat()
         audit_log_table.put_item(Item={
             "logId": str(uuid.uuid4()),
             "timestamp": now,
@@ -113,7 +118,8 @@ def _write_audit(
             "resourceType": resource_type,
             "resourceId": resource_id,
             "patientId": patient_id,
-            "statusCode": 200,
+            "statusCode": status_code,
+            "expiresAt": now_epoch + AUDIT_RETENTION_SECONDS,
         })
     except Exception:
         pass
@@ -126,9 +132,40 @@ def _parse_body(event: dict) -> dict:
         return {}
 
 
-def _resp(status: int, body: dict) -> dict:
+def _cors_headers(event: dict | None) -> dict:
+    if not event:
+        return {"Content-Type": "application/json", "Vary": "Origin"}
+    headers = event.get("headers") or {}
+    origin = headers.get("origin") or headers.get("Origin") or ""
+    if _is_allowed_origin(origin):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Headers": "Content-Type,Authorization",
+            "Access-Control-Allow-Methods": "OPTIONS,POST",
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+            "Content-Type": "application/json",
+        }
+    return {"Content-Type": "application/json", "Vary": "Origin"}
+
+
+def _is_allowed_origin(origin: str) -> bool:
+    normalized = (origin or "").rstrip("/")
+    normalized_lower = normalized.lower()
+    if normalized_lower.startswith("https://") and normalized_lower.endswith(".cloudfront.net"):
+        return True
+
+    allowed_origins = {
+        value.strip().rstrip("/")
+        for value in os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        if value.strip()
+    }
+    return normalized in allowed_origins
+
+
+def _resp(status: int, body: dict, event: dict | None = None) -> dict:
     return {
         "statusCode": status,
-        "headers": CORS,
+        "headers": _cors_headers(event),
         "body": json.dumps(body),
     }

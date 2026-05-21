@@ -10,6 +10,7 @@ POST /patients             Register a new patient record
 
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -23,11 +24,7 @@ results_table = dynamodb.Table(os.environ["DIAGNOSTIC_RESULTS_TABLE"])
 audit_log_table = dynamodb.Table(os.environ["AUDIT_LOG_TABLE"])
 DICOM_BUCKET = os.environ.get("DICOM_BUCKET", "")
 
-CORS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-    "Content-Type": "application/json",
-}
+AUDIT_RETENTION_SECONDS = int(os.environ.get("AUDIT_RETENTION_SECONDS", str(7 * 365 * 24 * 60 * 60)))
 
 
 def lambda_handler(event, context):
@@ -37,18 +34,19 @@ def lambda_handler(event, context):
     user_id = (event.get("requestContext", {}).get("authorizer") or {}).get("userId", "unknown")
 
     if method == "GET" and not path_params.get("patientId"):
-        return _list_patients(user_id)
+        return _list_patients(user_id, event)
     if method == "GET" and path_params.get("patientId"):
-        return _get_patient(path_params["patientId"], user_id)
+        return _get_patient(path_params["patientId"], user_id, event)
     if method == "POST" and not path_params.get("patientId"):
         return _create_patient(event, user_id)
 
-    return _resp(404, {"error": "Not found"})
+    _write_audit(user_id, "ROUTE_NOT_FOUND", "Patient", path or "unknown", 404)
+    return _resp(404, {"error": "Not found"}, event)
 
 
 # ── List patients ─────────────────────────────────────────────────────────
 
-def _list_patients(user_id: str):
+def _list_patients(user_id: str, event: dict):
     """
     Returns every patient ordered by lastLunaRiskScore descending so the
     highest-risk cases appear at the top of the triage list (FR-UI 1.1).
@@ -64,17 +62,18 @@ def _list_patients(user_id: str):
     # Sort by risk score descending; unscored patients go to the bottom
     patients.sort(key=lambda p: float(p.get("lastLunaRiskScore", 0)), reverse=True)
 
-    _write_audit(user_id, "LIST_PATIENTS", "Patient", "*")
-    return _resp(200, {"patients": [_serialize(p) for p in patients]})
+    _write_audit(user_id, "LIST_PATIENTS", "Patient", "*", 200)
+    return _resp(200, {"patients": [_serialize(p) for p in patients]}, event)
 
 
 # ── Get patient ───────────────────────────────────────────────────────────
 
-def _get_patient(patient_id: str, user_id: str):
+def _get_patient(patient_id: str, user_id: str, event: dict):
     resp = patients_table.get_item(Key={"patientId": patient_id})
     patient = resp.get("Item")
     if not patient:
-        return _resp(404, {"error": f"Patient {patient_id} not found"})
+        _write_audit(user_id, "VIEW_PATIENT", "Patient", patient_id, 404)
+        return _resp(404, {"error": f"Patient {patient_id} not found"}, event)
 
     # Fetch the most recent diagnostic result for context (FR-UI 2.1)
     latest_result = _get_latest_result(patient_id)
@@ -93,11 +92,11 @@ def _get_patient(patient_id: str, user_id: str):
             except Exception:
                 pass
 
-    _write_audit(user_id, "VIEW_PATIENT", "Patient", patient_id)
+    _write_audit(user_id, "VIEW_PATIENT", "Patient", patient_id, 200)
     return _resp(200, {
         "patient": _serialize(patient),
         "latestResult": serialized_result,
-    })
+    }, event)
 
 
 # ── Create patient ────────────────────────────────────────────────────────
@@ -108,7 +107,8 @@ def _create_patient(event: dict, user_id: str):
     required = ["name", "dateOfBirth"]
     for field in required:
         if not body.get(field):
-            return _resp(400, {"error": f"Missing required field: {field}"})
+            _write_audit(user_id, "CREATE_PATIENT", "Patient", "*", 400)
+            return _resp(400, {"error": f"Missing required field: {field}"}, event)
 
     patient_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
@@ -131,8 +131,8 @@ def _create_patient(event: dict, user_id: str):
     }
     patients_table.put_item(Item=item)
 
-    _write_audit(user_id, "CREATE_PATIENT", "Patient", patient_id)
-    return _resp(201, {"patient": _serialize(item)})
+    _write_audit(user_id, "CREATE_PATIENT", "Patient", patient_id, 201)
+    return _resp(201, {"patient": _serialize(item)}, event)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -168,9 +168,10 @@ def _serialize(obj):
     return result
 
 
-def _write_audit(user_id: str, action: str, resource_type: str, resource_id: str):
+def _write_audit(user_id: str, action: str, resource_type: str, resource_id: str, status_code: int = 200):
     try:
-        now = datetime.now(timezone.utc).isoformat()
+        now_epoch = int(time.time())
+        now = datetime.fromtimestamp(now_epoch, timezone.utc).isoformat()
         audit_log_table.put_item(Item={
             "logId": str(uuid.uuid4()),
             "timestamp": now,
@@ -178,7 +179,8 @@ def _write_audit(user_id: str, action: str, resource_type: str, resource_id: str
             "action": action,
             "resourceType": resource_type,
             "resourceId": resource_id,
-            "statusCode": 200,
+            "statusCode": status_code,
+            "expiresAt": now_epoch + AUDIT_RETENTION_SECONDS,
         })
     except Exception:
         pass
@@ -191,9 +193,40 @@ def _parse_body(event: dict) -> dict:
         return {}
 
 
-def _resp(status: int, body: dict) -> dict:
+def _cors_headers(event: dict | None) -> dict:
+    if not event:
+        return {"Content-Type": "application/json", "Vary": "Origin"}
+    headers = event.get("headers") or {}
+    origin = headers.get("origin") or headers.get("Origin") or ""
+    if _is_allowed_origin(origin):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Headers": "Content-Type,Authorization",
+            "Access-Control-Allow-Methods": "OPTIONS,GET,POST",
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+            "Content-Type": "application/json",
+        }
+    return {"Content-Type": "application/json", "Vary": "Origin"}
+
+
+def _is_allowed_origin(origin: str) -> bool:
+    normalized = (origin or "").rstrip("/")
+    normalized_lower = normalized.lower()
+    if normalized_lower.startswith("https://") and normalized_lower.endswith(".cloudfront.net"):
+        return True
+
+    allowed_origins = {
+        value.strip().rstrip("/")
+        for value in os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        if value.strip()
+    }
+    return normalized in allowed_origins
+
+
+def _resp(status: int, body: dict, event: dict | None = None) -> dict:
     return {
         "statusCode": status,
-        "headers": CORS,
+        "headers": _cors_headers(event),
         "body": json.dumps(body, default=str),
     }
