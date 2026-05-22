@@ -2,7 +2,7 @@
   "image_id": "<string: original VinBigData identifier>",
   "historical_ehr_context": {
     "patient_demographics": {
-     “Patient_age”: [int]
+     "Patient_age": ["int"],
       "age_group": ["<20", "20-40", "41-60", "61-80", ">80"],
       "ethnicity": ["Caucasian", "African Descent", "Asian", "Hispanic/Latino", "Other/Unknown"],
       "bmi_category": ["Underweight (<18.5)", "Normal (18.5-24.9)", "Overweight (25-29.9)", "Obese (≥30)"]
