@@ -4,18 +4,36 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth";
 import ReactMarkdown from "react-markdown";
 
-const STATIC_GREETING = {
-  id: "static-greeting",
-  role: "assistant" as const,
+const GENERAL_GREETING: Message = {
+  id: "greeting-general",
+  role: "assistant",
   content:
-    "Good morning, Doctor. I’m LUNA, your clinical decision support assistant.\n\n" +
-    "I can help you review a patient’s case, interpret diagnostic reports, and suggest next steps based on the available clinical information.\n\n" +
-    "You can:\n\n" +
-    "- Ask about a specific patient\n" +
-    "- Share a report or findings for interpretation\n" +
-    "- Or discuss a clinical case for guidance on next actions\n\n" +
-    "How would you like to proceed today?",
+    "Good morning, Doctor. I\u2019m **LUNA**, your clinical decision support assistant.\n\n" +
+    "I have access to the patient database and indexed clinical literature. " +
+    "You can ask me about population-level findings, specific conditions, " +
+    "or general thoracic imaging protocols.\n\n" +
+    "**Suggested questions to get started:**\n\n" +
+    "- *Which patients have the most critical imaging findings?*\n" +
+    "- *How many patients show signs of cardiomegaly or ILD?*\n" +
+    "- *What is the recommended follow-up protocol for aortic enlargement?*\n" +
+    "- *Summarise all patients with high-severity findings.*\n\n" +
+    "How can I assist you today?",
 };
+
+const PATIENT_GREETING: Message = {
+  id: "greeting-patient",
+  role: "assistant",
+  content:
+    "I\u2019m ready to discuss this case. I can help you:\n\n" +
+    "- Review the imaging findings and model predictions\n" +
+    "- Interpret the clinical data in the context of the patient\u2019s history\n" +
+    "- Suggest next steps, follow-up protocols, or escalation criteria\n\n" +
+    "What would you like to know about this patient?",
+};
+
+function greetingFor(patientId: string | null): Message {
+  return patientId ? PATIENT_GREETING : GENERAL_GREETING;
+}
 
 type Message = {
   id: string;
@@ -24,10 +42,16 @@ type Message = {
 };
 
 export default function ChatInterface({ selectedPatientId }: { selectedPatientId: string | null }) {
-  const [messages, setMessages] = useState<Message[]>([STATIC_GREETING]);
+  const [messages, setMessages] = useState<Message[]>([GENERAL_GREETING]);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Reset conversation when switching between general mode and a patient
+  useEffect(() => {
+    setMessages([greetingFor(selectedPatientId)]);
+    setInput("");
+  }, [selectedPatientId]);
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
@@ -114,7 +138,10 @@ export default function ChatInterface({ selectedPatientId }: { selectedPatientId
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask LUNA about a patient, request a diagnostic report…"
+              placeholder={selectedPatientId
+                ? "Ask LUNA about this patient’s findings, history, or next steps…"
+                : "Ask LUNA about patients, findings, protocols, or clinical questions…"
+              }
               rows={1}
               className="flex-1 resize-none bg-transparent px-3 py-2 font-sans text-sm text-ice placeholder-mist/70 outline-none"
             />

@@ -171,7 +171,13 @@ def _process_record(sqs_record: dict):
 
 def _run_pipeline(job_id: str, patient_id: str, s3_key: str, connection_id: str):
     # ── Step 1: Run image classifier ────────────────────────────────────
-    image_prediction = _parse_chexone_output(_invoke_sagemaker(s3_key))
+    # For the 5 demo patients the pre-computed VLM output is loaded directly
+    # from S3 (reference_outputs/{patient_id}/results.json), bypassing the
+    # real-time SageMaker endpoint.  For any unknown patient the pipeline
+    # falls back to invoking the async CheXOne SageMaker endpoint.
+    image_prediction = _parse_chexone_output(
+        _get_precomputed_or_invoke(patient_id, s3_key)
+    )
 
     # ── Step 2: Fetch clinical risk factors ─────────────────────────────
     patient = _get_patient(patient_id)
@@ -202,7 +208,8 @@ def _run_pipeline(job_id: str, patient_id: str, s3_key: str, connection_id: str)
         UpdateExpression=(
             "SET #st = :st, lunaRiskScore = :score, nodulesDetected = :nod, "
             "imagePrediction = :ip, clinicalFactors = :cf, "
-            "clinicalSummary = :cs, completedAt = :ts, s3Key = :sk"
+            "clinicalSummary = :cs, completedAt = :ts, s3Key = :sk, "
+            "originalImageKey = :oik, annotatedImageKey = :aik"
         ),
         ExpressionAttributeNames={"#st": "status"},
         ExpressionAttributeValues={
@@ -214,6 +221,10 @@ def _run_pipeline(job_id: str, patient_id: str, s3_key: str, connection_id: str)
             ":cs": clinical_summary,
             ":ts": now,
             ":sk": s3_key,
+            # Pre-computed PNG renders — always point to the reference outputs
+            # for the 5 demo patients; new patients would need real renders.
+            ":oik": f"reference_outputs/{patient_id}/original.png",
+            ":aik": f"reference_outputs/{patient_id}/annotated.png",
         },
     )
 
@@ -244,6 +255,31 @@ def _run_pipeline(job_id: str, patient_id: str, s3_key: str, connection_id: str)
 
 
 # ── SageMaker async inference ─────────────────────────────────────────────
+
+def _get_precomputed_or_invoke(patient_id: str, s3_key: str) -> dict:
+    """
+    Demo-mode bypass: for the 5 pre-processed patients load the VLM result
+    that was uploaded by seed_dicom.py to
+        s3://<DICOM_BUCKET>/reference_outputs/{patient_id}/results.json
+
+    This simulates the CheXOne SageMaker endpoint without requiring a real
+    GPU inference endpoint to be running.  If the pre-computed JSON is not
+    found (e.g. a truly new patient), the function falls back to the real
+    async SageMaker inference pipeline.
+    """
+    precomputed_key = f"reference_outputs/{patient_id}/results.json"
+    try:
+        obj = s3_client.get_object(Bucket=DICOM_BUCKET, Key=precomputed_key)
+        print(f"[inference_worker] Using pre-computed VLM results for patient {patient_id}")
+        return json.loads(obj["Body"].read())
+    except ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("404", "NoSuchKey"):
+            print(f"[inference_worker] No pre-computed results for {patient_id}, "
+                  f"falling back to SageMaker")
+            return _invoke_sagemaker(s3_key)
+        raise
+
 
 def _invoke_sagemaker(s3_key: str) -> dict:
     """

@@ -8,7 +8,6 @@ import { getSession, logout, apiFetch } from "../../lib/auth";
 
 interface Patient {
   patientId: string;
-  name: string;
   lastLunaRiskScore: number | null;
   status: string;
 }
@@ -18,6 +17,7 @@ interface SidebarProps {
   onToggle: () => void;
   selectedPatientId: string | null;
   onSelectPatient: (id: string | null) => void;
+  onRequestNewChat: () => void;
 }
 
 /**
@@ -25,7 +25,7 @@ interface SidebarProps {
  * Collapsible, shows nav items + user block + logout at the bottom.
  * Icons are placeholders for future feature wiring.
  */
-export default function Sidebar({ collapsed, onToggle, selectedPatientId, onSelectPatient }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, selectedPatientId, onSelectPatient, onRequestNewChat }: SidebarProps) {
   const router = useRouter();
   const [username, setUsername] = useState<string>("Clinician");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -96,6 +96,7 @@ export default function Sidebar({ collapsed, onToggle, selectedPatientId, onSele
       {/* New chat button */}
       <div className="px-3 pt-4">
         <button
+          onClick={onRequestNewChat}
           className={`flex w-full items-center gap-3 rounded-md border border-cyan/40 bg-cyan/10 px-3 py-2.5 font-display text-[11px] font-semibold tracking-[0.15em] text-cyan transition hover:bg-cyan/20 hover:shadow-glow-cyan ${
             collapsed ? "justify-center" : ""
           }`}
@@ -108,7 +109,7 @@ export default function Sidebar({ collapsed, onToggle, selectedPatientId, onSele
       {/* Nav items */}
       <nav className="mt-4 flex flex-col overflow-hidden px-3" style={{ flex: 1, minHeight: 0 }}>
         <div className="space-y-1">
-          <NavItem icon={<MessagesIcon />} label="Conversations" collapsed={collapsed} active />
+          <NavItem icon={<MessagesIcon />} label="Conversations" collapsed={collapsed} active={selectedPatientId === null} onClick={() => onSelectPatient(null)} />
           <NavItem icon={<DocumentIcon />} label="Reports" collapsed={collapsed} />
           <NavItem icon={<HistoryIcon />} label="History" collapsed={collapsed} />
         </div>
@@ -141,9 +142,12 @@ export default function Sidebar({ collapsed, onToggle, selectedPatientId, onSele
                   }`}
                 >
                   <RiskDot status={p.status} />
-                  <span className="flex-1 truncate font-sans text-xs">{p.name}</span>
+                  <span className="flex-1 truncate font-mono text-[10px] text-ice/80"
+                        title={p.patientId}>
+                    {p.patientId.slice(0, 8)}&hellip;
+                  </span>
                   <span className={`shrink-0 font-display text-[9px] tabular-nums ${riskScoreColor(p.status)}`}>
-                    {p.lastLunaRiskScore != null ? p.lastLunaRiskScore : "—"}
+                    {statusLabel(p.status)}
                   </span>
                 </button>
               ))}
@@ -176,7 +180,7 @@ export default function Sidebar({ collapsed, onToggle, selectedPatientId, onSele
             <div className="min-w-0 flex-1 leading-tight">
               <div className="truncate font-sans text-sm text-ice">{username}</div>
               <div className="font-display text-[9px] tracking-[0.2em] text-mist">
-                THORACIC · ONCOLOGY
+                THORACIC IMAGING
               </div>
             </div>
           )}
@@ -218,14 +222,17 @@ function NavItem({
   label,
   collapsed,
   active,
+  onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   collapsed: boolean;
   active?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <button
+      onClick={onClick}
       className={`flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm transition ${
         active
           ? "bg-slate/60 text-ice"
@@ -246,6 +253,13 @@ function riskScoreColor(status: string): string {
   if (status === "AI_FLAGGED_MODERATE_RISK") return "text-amber-400";
   if (status === "AI_FLAGGED_LOW_RISK") return "text-cyan";
   return "text-mist/50";
+}
+
+function statusLabel(status: string): string {
+  if (status === "AI_FLAGGED_HIGH_RISK") return "HIGH";
+  if (status === "AI_FLAGGED_MODERATE_RISK") return "MOD";
+  if (status === "AI_FLAGGED_LOW_RISK") return "LOW";
+  return "—";
 }
 
 function RiskDot({ status }: { status: string }) {

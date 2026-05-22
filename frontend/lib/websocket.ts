@@ -9,7 +9,7 @@ export interface WsResult {
   status: string;
   lunaRiskScore: number;
   riskLabel: string;
-  nodulesDetected: unknown[];
+  nodulesDetected: { finding: string; confidence?: string | number }[];
   clinicalSummary: string;
   completedAt: string;
 }

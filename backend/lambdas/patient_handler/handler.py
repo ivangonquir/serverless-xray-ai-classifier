@@ -81,16 +81,22 @@ def _get_patient(patient_id: str, user_id: str, event: dict):
     serialized_result = None
     if latest_result:
         serialized_result = _serialize(latest_result)
-        s3_key = latest_result.get("s3Key")
-        if s3_key and DICOM_BUCKET:
-            try:
-                serialized_result["imageUrl"] = s3_client.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": DICOM_BUCKET, "Key": s3_key},
-                    ExpiresIn=3600,
-                )
-            except Exception:
-                pass
+        # Generate presigned URLs for all stored image keys (1-hour validity)
+        for key_field, url_field in [
+            ("s3Key",            "imageUrl"),
+            ("originalImageKey", "originalImageUrl"),
+            ("annotatedImageKey","annotatedImageUrl"),
+        ]:
+            s3_key = latest_result.get(key_field)
+            if s3_key and DICOM_BUCKET:
+                try:
+                    serialized_result[url_field] = s3_client.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": DICOM_BUCKET, "Key": s3_key},
+                        ExpiresIn=3600,
+                    )
+                except Exception:
+                    pass
 
     _write_audit(user_id, "VIEW_PATIENT", "Patient", patient_id, 200)
     return _resp(200, {
@@ -151,21 +157,17 @@ def _get_latest_result(patient_id: str) -> dict | None:
 
 
 def _serialize(obj):
-    """Converts Decimal types from DynamoDB to plain Python types."""
+    """Recursively converts DynamoDB Decimal types to plain Python types."""
+    from decimal import Decimal
     if obj is None:
         return None
-    from decimal import Decimal
-    result = {}
-    for k, v in obj.items():
-        if isinstance(v, Decimal):
-            result[k] = float(v) if v % 1 else int(v)
-        elif isinstance(v, list):
-            result[k] = [
-                float(i) if isinstance(i, Decimal) else i for i in v
-            ]
-        else:
-            result[k] = v
-    return result
+    if isinstance(obj, Decimal):
+        return float(obj) if obj % 1 else int(obj)
+    if isinstance(obj, list):
+        return [_serialize(i) for i in obj]
+    if isinstance(obj, dict):
+        return {k: _serialize(v) for k, v in obj.items()}
+    return obj
 
 
 def _write_audit(user_id: str, action: str, resource_type: str, resource_id: str, status_code: int = 200):

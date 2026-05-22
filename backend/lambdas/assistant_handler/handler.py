@@ -121,11 +121,13 @@ def _handle_query(event: dict, user_id: str):
     context_text = "\n\n".join(context_parts)
 
     system_prompt = (
-        "You are LUNA, a clinical decision support AI assistant specialised in lung cancer "
-        "screening and pulmonary nodule management. You help doctors retrieve patient "
-        "information and answer clinical questions. Always cite your sources using the "
-        "[N] reference format. Be concise, accurate, and flag any uncertainty explicitly. "
-        "Never provide a definitive diagnosis — always recommend clinical judgement."
+        "You are LUNA, a clinical decision support AI assistant specialised in thoracic "
+        "imaging and cardiopulmonary disease screening. You help clinicians retrieve patient "
+        "information, interpret imaging findings, and answer clinical questions grounded in "
+        "the available data and medical literature. Always cite your sources using the "
+        "[N] reference format when referencing documents. Be concise, accurate, and flag any "
+        "uncertainty explicitly. Never provide a definitive diagnosis — always recommend "
+        "clinical judgement and appropriate escalation when needed."
     )
 
     response_text = _call_llm(system_prompt, context_text, query_text)
@@ -290,12 +292,10 @@ def _build_patient_context(patient_id: str) -> str:
 
         lines = [
             f"## Patient Record (ID: {patient_id})",
-            f"Name: {patient.get('name', 'N/A')}",
             f"Age: {patient.get('age', 'N/A')}",
             f"Smoking history: {patient.get('smokingHistory', 'N/A')} "
             f"({patient.get('packYears', 0)} pack-years)",
-            f"Family history of lung cancer: {patient.get('familyHistory', False)}",
-            f"Current LUNA Risk Score: {patient.get('lastLunaRiskScore', 'Not yet assessed')}",
+            f"Family history (oncological): {patient.get('familyHistory', False)}",
             f"Current status: {patient.get('status', 'Unknown')}",
         ]
 
@@ -357,14 +357,14 @@ def _build_population_context(query_text: str) -> str:
     """
     try:
         resp = patients_table.scan(
-            ProjectionExpression="patientId, #nm, age, #st, lastLunaRiskScore, smokingHistory",
-            ExpressionAttributeNames={"#nm": "name", "#st": "status"},
+            ProjectionExpression="patientId, age, #st, lastLunaRiskScore, smokingHistory",
+            ExpressionAttributeNames={"#st": "status"},
         )
         patients = resp.get("Items", [])
         while "LastEvaluatedKey" in resp:
             resp = patients_table.scan(
-                ProjectionExpression="patientId, #nm, age, #st, lastLunaRiskScore, smokingHistory",
-                ExpressionAttributeNames={"#nm": "name", "#st": "status"},
+                ProjectionExpression="patientId, age, #st, lastLunaRiskScore, smokingHistory",
+                ExpressionAttributeNames={"#st": "status"},
                 ExclusiveStartKey=resp["LastEvaluatedKey"],
             )
             patients.extend(resp.get("Items", []))
@@ -392,9 +392,9 @@ def _build_population_context(query_text: str) -> str:
         patients.sort(key=lambda p: float(p.get("lastLunaRiskScore") or 0), reverse=True)
         for p in patients[:20]:
             lines.append(
-                f"- {p.get('name', 'N/A')} (ID: {p['patientId']}) | "
+                f"- ID: {p['patientId'][:12]}… | "
                 f"Age: {p.get('age', 'N/A')} | "
-                f"Risk: {p.get('lastLunaRiskScore', 'N/A')} | "
+                f"Risk score: {p.get('lastLunaRiskScore', 'N/A')} | "
                 f"Status: {p.get('status', 'N/A')}"
             )
 

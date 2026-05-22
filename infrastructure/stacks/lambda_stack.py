@@ -218,9 +218,9 @@ class LambdaStack(Stack):
                 "OPENSEARCH_ENDPOINT": storage_stack.opensearch_domain.domain_endpoint,
                 "OPENSEARCH_INDEX": "luna-docs",
                 # Set to a SageMaker endpoint name to use the ML team's LLM;
-                # leave empty to fall back to Amazon Bedrock Claude
+                # leave empty to fall back to Amazon Bedrock Claude Haiku
                 "LLM_SAGEMAKER_ENDPOINT": "",
-                "BEDROCK_MODEL_ID": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "BEDROCK_MODEL_ID": "eu.amazon.nova-lite-v1:0",
                 "ALLOWED_ORIGINS": allowed_origins,
                 "AUDIT_RETENTION_SECONDS": audit_retention_seconds,
             },

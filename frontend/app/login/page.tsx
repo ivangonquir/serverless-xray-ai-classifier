@@ -61,7 +61,7 @@ export default function LoginPage() {
                 LUNA
               </div>
               <div className="font-display text-[10px] tracking-[0.4em] text-cyan">
-                LUNG KNOWLEDGE ASSISTANT
+                CLINICAL IMAGING ASSISTANT
               </div>
             </div>
           </div>
@@ -74,11 +74,11 @@ export default function LoginPage() {
               <div className="h-px w-12 bg-cyan/60" />
             </div>
             <h1 className="font-sans text-5xl font-light leading-[1.1] text-ice whitespace-nowrap">
-              <span className="font-semibold text-cyan">Intelligent</span> Lung Cancer Screening
+              <span className="font-semibold text-cyan">Intelligent</span> Thoracic Screening
             </h1>
             <p className="text-frost">
-              Welcome to LUNA: Empowering clinical decisions with multimodal
-              AI insights and evidence-based screening for lung cancer.
+              Welcome to LUNA: empowering clinical decisions with multimodal
+              AI insights and evidence-based thoracic imaging analysis.
             </p>
           </div>
 

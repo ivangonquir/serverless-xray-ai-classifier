@@ -147,4 +147,11 @@ def seed(folder="./rag_docs"):
     print("✅ Opensearch Seeding Complete")
 
 if __name__ == "__main__":
-    seed("./rag_docs")
+    # PDFs live at ml/chexone_test_production/data/rag/ relative to the repo root.
+    # This path works whether the script is run from data_ingestion/ or the repo root.
+    import sys
+    from pathlib import Path
+
+    default_rag = Path(__file__).resolve().parent.parent / "ml" / "chexone_test_production" / "data" / "rag"
+    folder_arg = sys.argv[1] if len(sys.argv) > 1 else str(default_rag)
+    seed(folder_arg)

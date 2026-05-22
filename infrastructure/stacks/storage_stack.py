@@ -91,7 +91,6 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
-            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
         self.users_table.add_global_secondary_index(
             index_name="UsernameIndex",
@@ -111,7 +110,6 @@ class StorageStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
             time_to_live_attribute="TTL",
-            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
 
         # ── DynamoDB: Patients ───────────────────────────────────────────
@@ -123,7 +121,6 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
-            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
 
         # ── DynamoDB: Diagnostic Results ─────────────────────────────────
@@ -135,7 +132,6 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
-            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
         # GSI to fetch all results for a patient, newest first
         self.diagnostic_results_table.add_global_secondary_index(
@@ -161,7 +157,6 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
-            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
 
         # ── DynamoDB: Audit Log ──────────────────────────────────────────
@@ -176,8 +171,9 @@ class StorageStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.RETAIN,
-            encryption=dynamodb.TableEncryption.AWS_MANAGED,
-            point_in_time_recovery=True,
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True
+            ),
             deletion_protection=True,
             time_to_live_attribute="expiresAt",
         )
@@ -214,17 +210,21 @@ class StorageStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
             time_to_live_attribute="TTL",
-            encryption=dynamodb.TableEncryption.AWS_MANAGED,
         )
 
         # ── OpenSearch: RAG Knowledge Base ───────────────────────────────
         # Provides medical literature search for the Virtual Assistant (FR-5.3)
         # The ML team ingests: MIMIC-CXR radiology reports, PubMed/PMC oncology
         # papers, and Fleischner Society guidelines into the "luna-docs" index.
+        # NOTE (demo): node_to_node_encryption and encryption_at_rest are
+        # intentionally disabled here.  AWS requires Fine-Grained Access Control
+        # when all three security options are enabled simultaneously, which adds
+        # significant setup complexity.  For a production deployment re-enable
+        # them and configure a master user via Secrets Manager.
         self.opensearch_domain = opensearch.Domain(
             self,
             "LunaOpenSearch",
-            domain_name="luna-knowledge-base",
+            domain_name="luna-kb",
             version=opensearch.EngineVersion.OPENSEARCH_2_11,
             capacity=opensearch.CapacityConfig(
                 data_nodes=1,
@@ -238,8 +238,6 @@ class StorageStack(Stack):
             ),
             removal_policy=RemovalPolicy.DESTROY,
             enforce_https=True,
-            node_to_node_encryption=True,
-            encryption_at_rest=opensearch.EncryptionAtRestOptions(enabled=True),
             access_policies=[
                 iam.PolicyStatement(
                     effect=iam.Effect.ALLOW,

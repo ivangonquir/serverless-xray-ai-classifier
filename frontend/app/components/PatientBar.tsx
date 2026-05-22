@@ -3,12 +3,22 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth";
 import { useWebSocket, WsResult } from "@/lib/websocket";
+import { getTopFinding, tierBadgeClass } from "@/lib/severity";
 
 interface Patient {
   patientId: string;
-  name: string;
   lastLunaRiskScore: number | null;
   status: string;
+}
+
+interface Nodule {
+  finding: string;
+  confidence: number | string;
+}
+
+interface LatestResult {
+  nodulesDetected?: Nodule[];
+  clinicalSummary?: string;
 }
 
 interface PatientBarProps {
@@ -19,6 +29,7 @@ type UploadState = "idle" | "requesting" | "uploading" | "processing" | "done" |
 
 export default function PatientBar({ patientId }: PatientBarProps) {
   const [patient, setPatient] = useState<Patient | null>(null);
+  const [latestResult, setLatestResult] = useState<LatestResult | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState<WsResult | null>(null);
@@ -28,8 +39,11 @@ export default function PatientBar({ patientId }: PatientBarProps) {
   const { connectionId, lastMessage } = useWebSocket();
 
   useEffect(() => {
-    apiFetch<{ patient: Patient }>(`/patients/${patientId}`)
-      .then((d) => setPatient(d.patient))
+    apiFetch<{ patient: Patient; latestResult: LatestResult | null }>(`/patients/${patientId}`)
+      .then((d) => {
+        setPatient(d.patient);
+        setLatestResult(d.latestResult ?? null);
+      })
       .catch(() => {});
   }, [patientId]);
 
@@ -89,14 +103,17 @@ export default function PatientBar({ patientId }: PatientBarProps) {
         {/* Patient info */}
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate/60 font-display text-[10px] font-bold text-ice">
-            {patient.name.slice(0, 2).toUpperCase()}
+            {patientId.slice(0, 2).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <div className="truncate font-sans text-sm font-medium text-ice">{patient.name}</div>
-            <div className="font-display text-[9px] tracking-[0.15em] text-mist/70">PATIENT ID · {patientId.slice(0, 8).toUpperCase()}</div>
+            <div className="truncate font-mono text-xs text-ice/90" title={patientId}>{patientId}</div>
+            <div className="font-display text-[9px] tracking-[0.15em] text-mist/70">PATIENT ID</div>
           </div>
           {patient.lastLunaRiskScore != null && (
-            <RiskBadge score={patient.lastLunaRiskScore} status={patient.status} />
+            <RiskBadge
+              status={patient.status}
+              nodules={latestResult?.nodulesDetected ?? []}
+            />
           )}
         </div>
 
@@ -137,16 +154,18 @@ export default function PatientBar({ patientId }: PatientBarProps) {
       {result && uploadState === "done" && (
         <div className="mx-auto mt-3 max-w-3xl rounded-xl border border-steel/50 bg-deepnavy/60 px-4 py-3">
           <div className="flex items-start gap-4">
-            <div className="text-center">
-              <div className={`font-display text-3xl font-bold tabular-nums ${scoreColor(result.lunaRiskScore)}`}>
-                {Math.round(result.lunaRiskScore)}
-              </div>
-              <div className="font-display text-[8px] tracking-[0.2em] text-mist/60">LUNA SCORE</div>
-            </div>
+            {(() => {
+              const top = getTopFinding(result.nodulesDetected ?? []);
+              return top ? (
+                <div className="text-center">
+                  <div className={`font-display text-3xl font-bold tabular-nums ${top.tier === "critical" ? "text-signal-red" : top.tier === "high" ? "text-amber-400" : top.tier === "moderate" ? "text-yellow-300" : "text-emerald-400"}`}>
+                    {top.score}%
+                  </div>
+                  <div className="font-display text-[8px] tracking-[0.2em] text-mist/60">{top.finding.toUpperCase()}</div>
+                </div>
+              ) : null;
+            })()}
             <div className="flex-1 min-w-0">
-              <div className={`mb-1 font-display text-[10px] font-bold tracking-[0.15em] ${scoreColor(result.lunaRiskScore)}`}>
-                {result.riskLabel.toUpperCase()}
-              </div>
               <p className="font-sans text-xs leading-relaxed text-ice/80">{result.clinicalSummary}</p>
             </div>
           </div>
@@ -158,20 +177,23 @@ export default function PatientBar({ patientId }: PatientBarProps) {
 
 /* ---------- Helpers ---------- */
 
-function scoreColor(score: number): string {
-  if (score >= 70) return "text-signal-red";
-  if (score >= 40) return "text-amber-400";
-  return "text-cyan";
-}
-
-function RiskBadge({ score, status }: { score: number; status: string }) {
+function RiskBadge({ status, nodules }: { status: string; nodules: Nodule[] }) {
+  const top = getTopFinding(nodules);
+  if (top) {
+    return (
+      <span className={`shrink-0 rounded-md border px-2 py-0.5 font-display text-[9px] font-bold tracking-[0.08em] ${tierBadgeClass(top.tier)}`}>
+        {top.finding.length > 14 ? top.finding.slice(0, 13) + "…" : top.finding} &middot; {top.score}%
+      </span>
+    );
+  }
+  // Fallback: status-based badge
   const color =
-    status === "AI_FLAGGED_HIGH_RISK" ? "border-signal-red/50 bg-signal-red/10 text-signal-red" :
+    status === "AI_FLAGGED_HIGH_RISK"     ? "border-signal-red/50 bg-signal-red/10 text-signal-red" :
     status === "AI_FLAGGED_MODERATE_RISK" ? "border-amber-400/50 bg-amber-400/10 text-amber-400" :
     "border-cyan/50 bg-cyan/10 text-cyan";
   return (
-    <span className={`shrink-0 rounded-md border px-2 py-0.5 font-display text-[9px] font-bold tabular-nums tracking-[0.1em] ${color}`}>
-      {Math.round(score)}
+    <span className={`shrink-0 rounded-md border px-2 py-0.5 font-display text-[9px] font-bold tracking-[0.1em] ${color}`}>
+      {status === "AI_FLAGGED_HIGH_RISK" ? "HIGH" : status === "AI_FLAGGED_MODERATE_RISK" ? "MOD" : "LOW"}
     </span>
   );
 }
