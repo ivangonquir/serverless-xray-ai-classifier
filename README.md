@@ -1,198 +1,130 @@
-# LUNA — Serverless Lung Cancer AI Platform
+# LUNA — Serverless Thoracic Screening AI Platform
 
-## Overview
-
-LUNA is a serverless, AI-driven clinical decision support system for **lung cancer screening and pulmonary nodule analysis**.
-
-It combines:
-
-- 🧠 Medical imaging AI (SageMaker CheXOne)
-- 📚 Retrieval-Augmented Generation (OpenSearch + Bedrock)
-- 🏥 Patient-level clinical context (DynamoDB)
-- ⚡ Real-time inference pipeline (S3 + SQS + Lambda + WebSockets)
-
-The system enables clinicians to:
-
-- Upload chest X-rays (DICOM / JPG / PNG)
-- Receive automated risk scoring + findings
-- Ask natural language clinical questions
-- Retrieve evidence-backed answers with citations
+> **Cloud Computing & Big Data Architecture — MSc Data Science, FIB**  
+> Team: Carlos Gil · Geming Wu · Iván Quirante · Marta Borrás · Zheshuo Lin
 
 ---
 
-## System Architecture
+## What is LUNA?
 
-> Include here an image of the final architecture
+LUNA (**L**ung **U**nit **N**eural **A**ssistant) is a fully serverless, cloud-native clinical decision support platform for **thoracic X-ray screening and pulmonary disease follow-up**. It is deployed entirely on AWS and requires zero server management.
 
----
+Clinicians interact with a single web interface that combines:
 
-## Core Components
+| Capability | Technology |
+|---|---|
+| **AI risk scoring** from chest X-rays | CheXOne VLM via Amazon SageMaker *(partially implemented — see below)* |
+| **Annotated X-ray viewer** with bounding boxes | Pre-computed VLM outputs stored in S3 |
+| **Patient triage list** sorted by LUNA Risk Score | DynamoDB + Lambda |
+| **AI clinical assistant** with medical literature citations | Amazon Bedrock (Claude) + OpenSearch RAG |
+| **Real-time result delivery** | API Gateway WebSocket + SQS |
 
-### 1. AI Imaging Model (SageMaker)
+### Demo entry point
 
-**Model:** CheXOne
-
-**Input:** Chest X-ray (DICOM / image)
-
-**Output:**
-  - LUNA Risk Score (0–100)
-  - Pathology predictions
-  - Bounding boxes
-
----
-
-### 2. LLM Assistant (Bedrock + RAG)
-
-**Model:** Claude Sonnet 4-5 (Bedrock)
-
-**Pipeline:**
-
-1. User query received
-2. Retrieve documents from OpenSearch (vector search)
-3. Inject:
-   - Patient context (DynamoDB)
-   - Medical literature (RAG)
-4. Generate response via Bedrock
-
-**Output:**
-- Structured clinical response
-- Inline citations `[1], [2], ...`
-
----
-
-### 3. Storage Layer
-
-LUNA uses multiple AWS storage services depending on the data type.
-
----
-
-#### Amazon S3
-
-Used for:
-
-- Frontend static files
-- Raw DICOM uploads
-- SageMaker model weights
-
----
-
-#### Amazon DynamoDB
-
-Used for:
-
-- User data
-- User session data
-- ...
-
----
-
-## Deployment
-
-### Backend Architecture Deployment
-
-> Install the dependencies
-
-```bash
-pip install -r requirements.txt
 ```
-
-> Execute the following command in `infrastructure/`
-
-```bash
-cdk deploy --all
-```
-
-By default, backend responses allow local development and any CloudFront distribution origin:
-
-* `http://localhost:3000`
-* `https://*.cloudfront.net`
-
-Use the `allowed_origins` CDK context only for additional exact origins, such as a custom frontend domain.
-
-> Update the environment variables in a `.env` file located in the root folder.
-
-**OPENSEARCH_HOST**=Domain endpoint of the created OpenSearch Domain
-**BUCKET_NAME_DICOM**=Name of the bucket create for storing Dicom data
-**NEXT_PUBLIC_API_URL**=REST API base URL found in LunaApiStack/Outputs/
-
----
-
-### Uploading Frontend Static Files (S3)
-
-> Create your own `.env.local` and update the environment variables.
-
-> Go to `frontend/` and build the Web UI:
-
-```bash
-npm install
-npm run build
-```
-
-> Execute the following command to send the built files to S3:
-
-```bash
-aws s3 sync out/ s3://<BUCKET_NAME_FRONTEND> --delete
+URL:       <NEXT_PUBLIC_FRONTEND_URL from CDK output>
+Username:  xxx
+Password:  XXX
 ```
 
 ---
 
-### Uploading Necessary DynamoDB Data
+## How the demo works
 
-> Execute the script in `data_ingestion/` to upload initial data for local development only.
+The demo environment is pre-loaded with **5 real patient cases** from the VinDr chest X-ray dataset. All diagnostic outputs (risk scores, pathology predictions, bounding boxes) are pre-computed and stored in S3 — no live SageMaker GPU endpoint is needed to run the demo.
 
-```bash
-python seed_dynamodb.py
-```
+**Workflow from the browser:**
 
-* Do not keep demo credentials in source control or production environments.
-* The `/auth/seed` API route is protected and disabled by default. If you enable it for a controlled dev environment, send explicit users in the request body and rotate/delete them afterwards.
-* For the helper script, set `SEED_AUTH_TOKEN` and `SEED_USERS_JSON` in your local environment.
+1. Log in → land on the triage dashboard showing 5 patients sorted by LUNA Risk Score (highest risk first).
+2. Click any patient → see their EHR summary, raw X-ray, and annotated X-ray (bounding boxes drawn by the VLM).
+3. Ask the AI assistant a clinical question in natural language → receive a structured, citation-backed answer grounded in indexed medical literature.
 
----
-
-### Dicom Data (S3)
-
-> Download the two zip files in Google Drive, unzip them and copy the first five files/folders into `data_ingestion/vindr_dicoms/` and `data_ingestion/vindr_results/`.
-
-> Only the first five have been used (In order to limit the costs of AWS).
-
-> Execute the following command in `data_ingestion/` to upload the data.
-
-```bash
-python seed_dicom.py
-```
+> **Note on SageMaker:** The full inference pipeline (S3 upload → SQS → Lambda → SageMaker async → WebSocket push) is implemented in code but the live GPU endpoint is kept offline to avoid continuous infrastructure costs. The `inference_worker` Lambda automatically falls back to the pre-computed S3 outputs for the 5 demo patients.
 
 ---
 
-### Opensearch
+## Architecture overview
 
-> Download the following pdfs from Google Drive.
-
-- **1_ACR Routine Chest Imaging.pdf**
-- **5_1705.02315v5.pdf**
-
-> Move them to `data_ingestion/rag_docs/`.
-
-> Add the following configuration in OpenSearch → Domain → Security configuration (replace placeholders with your own AWS account details).
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::<ACCOUNT_ID>:user/<IAM_USER_NAME>"
-      },
-      "Action": "es:*",
-      "Resource": "arn:aws:es:<REGION>:<ACCOUNT_ID>:domain/<DOMAIN_NAME>/*"
-    }
-  ]
-}
+```
+Browser (CloudFront + Next.js)
+    │
+    ├── REST API (API Gateway)          ← all routes protected by Lambda Authorizer
+    │       ├── POST /auth/login         → auth_handler
+    │       ├── GET  /patients           → patient_handler
+    │       ├── GET  /patients/{id}      → patient_handler
+    │       ├── POST /patients/{id}/diagnose → diagnostic_handler → SQS
+    │       └── POST /assistant/query    → assistant_handler (RAG + Bedrock)
+    │
+    └── WebSocket API (API Gateway)      ← real-time push
+            └── $connect / $disconnect  → connection_manager
+                                               ↑
+S3 event → SQS → inference_worker Lambda ──────┘
+                        ↓
+          reference_outputs/{id}/results.json   ← pre-computed VLM (demo)
+          OR SageMaker InvokeEndpointAsync       ← live inference (production)
 ```
 
-> Execute the following command in `data_ingestion/` to upload the data.
+**Six CDK stacks** deploy the full system in `eu-west-1`:
+
+| Stack | What it creates |
+|---|---|
+| `LunaStorageStack` | S3 bucket, 7 DynamoDB tables, SQS + DLQ, KMS key, Secrets Manager |
+| `LunaWebSocketStack` | API Gateway WebSocket API + `connection_manager` Lambda |
+| `LunaSageMakerStack` | SageMaker model + endpoint config (offline in demo) |
+| `LunaLambdaStack` | All 8 Lambda functions + IAM grants + SQS event source |
+| `LunaApiStack` | REST API Gateway + Lambda Authorizer + all routes |
+| `LunaFrontendStack` | S3 frontend bucket + CloudFront distribution |
+
+---
+
+## Repository layout
+
+```
+├── backend/lambdas/        # 8 Lambda handlers (Python 3.11)
+│   ├── auth_handler/       # login, logout, session management
+│   ├── authorizer/         # custom token validation for API Gateway
+│   ├── patient_handler/    # patient list + detail
+│   ├── upload_handler/     # pre-signed S3 URL generation
+│   ├── diagnostic_handler/ # enqueue diagnostic job to SQS
+│   ├── inference_worker/   # SQS consumer: runs VLM + pushes result via WebSocket
+│   ├── assistant_handler/  # RAG pipeline: OpenSearch + Bedrock
+│   └── connection_manager/ # WebSocket connect/disconnect
+├── data_ingestion/         # one-off seed scripts (run after deploy)
+│   ├── seed_dynamodb.py    # create demo user account
+│   ├── seed_dicom.py       # upload DICOMs + pre-computed VLM outputs to S3
+│   ├── seed_opensearch.py  # chunk PDFs → embeddings → OpenSearch index
+│   └── seed_patients.py    # load 5 demo patients into DynamoDB
+├── frontend/               # Next.js 14 + Tailwind CSS
+├── infrastructure/         # AWS CDK (Python) — 6 stacks
+├── ml/chexone_test_production/
+│   └── data/
+│       ├── dicoms/         # 5 DICOM files (VinDr dataset)
+│       ├── reference_outputs/  # pre-computed VLM JSON + PNG renders
+│       ├── ehr/            # patient EHR JSON files
+│       └── rag/            # medical PDF documents for RAG indexing
+└── tests/                  # unit + integration tests
+```
+
+---
+
+## Quick start
+
+See **[DEPLOYMENT_INSTRUCTIONS.md](./DEPLOYMENT_INSTRUCTIONS.md)** for the full step-by-step guide.
+
+Short version:
 
 ```bash
-python seed_opensearch.py
+# 1. Deploy infrastructure
+cd infrastructure && cdk deploy --all --require-approval never
+
+# 2. Seed data (after OpenSearch domain is Active, ~15 min)
+cd data_ingestion
+python seed_dynamodb.py    # create demo user
+python seed_dicom.py       # upload DICOMs + VLM outputs to S3
+python seed_opensearch.py  # index medical literature
+python seed_patients.py    # load 5 demo patients into DynamoDB
+
+# 3. Build and deploy frontend
+cd frontend && npm install && npm run build
+aws s3 sync out/ s3://$FRONTEND_BUCKET --delete
 ```
