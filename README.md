@@ -7,7 +7,7 @@
 
 ## What is LUNA?
 
-LUNA (**L**ung **U**nit **N**eural **A**ssistant) is a fully serverless, cloud-native clinical decision support platform for **thoracic X-ray screening and pulmonary disease follow-up**. It is deployed entirely on AWS and requires zero server management.
+LUNA (**L**ung **U**nit k**N**owledge **A**ssistant) is a fully serverless, cloud-native clinical decision support platform for **thoracic X-ray screening and pulmonary disease follow-up**. It is deployed entirely on AWS and requires zero server management.
 
 Clinicians interact with a single web interface that combines:
 
@@ -22,9 +22,9 @@ Clinicians interact with a single web interface that combines:
 ### Demo entry point
 
 ```
-URL:       <NEXT_PUBLIC_FRONTEND_URL from CDK output>
+URL:       <NEXT_PUBLIC_FRONTEND_URL>
 Username:  xxx
-Password:  XXX
+Password:  xxx
 ```
 
 ---
