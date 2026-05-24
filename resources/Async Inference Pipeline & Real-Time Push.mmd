@@ -1,0 +1,88 @@
+flowchart TB
+
+    classDef client  fill:#2a2a1a,stroke:#d4c84a,stroke-width:2px,color:#fff8c0
+    classDef aws     fill:#1b2a3d,stroke:#4a90d9,color:#cce4ff
+    classDef fn      fill:#1a2a3a,stroke:#f0a830,stroke-width:2px,color:#ffe4a0
+    classDef db      fill:#1a2233,stroke:#5b8dd9,color:#c8dcff
+    classDef offline fill:#4a1942,stroke:#c97dbd,stroke-width:2px,stroke-dasharray:6 4,color:#f0c6ec
+    classDef demo    fill:#1a3a1a,stroke:#6abf69,stroke-width:2px,stroke-dasharray:5 3,color:#b9f0b0
+
+    BROWSER(["Clinician Browser"]):::client
+
+    subgraph SUBMIT["Job entry points"]
+        direction LR
+        S3[("S3 luna-dicom
+uploads/ prefix")]:::aws
+        DX_FN(["diagnostic_handler
+manual trigger"]):::fn
+    end
+
+    subgraph QUEUE["LunaStorageStack — SQS"]
+        direction LR
+        SQS["SQS luna-diagnostic-queue
+KMS encrypted"]:::aws
+        DLQ["Dead-Letter Queue
+retain 14 days"]:::aws
+    end
+
+    subgraph WORKER["LunaLambdaStack"]
+        INF_FN(["inference_worker
+
+download DICOM → classify image
+fetch clinical risk factors
+multimodal fusion
+→ LUNA Risk Score"]):::fn
+    end
+
+    subgraph SM["LunaSageMakerStack — ENDPOINT OFFLINE"]
+        SM_EP["SageMaker Endpoint
+CheXOne VLM · GPU
+
+Infrastructure defined
+Endpoint not activated"]:::offline
+    end
+
+    DEMO[("S3 reference_outputs
+pre-computed VLM results
+DEMO only")]:::demo
+
+    subgraph RESULTS["LunaStorageStack — results"]
+        direction LR
+        TBL_DX[("luna-diagnostic-results")]:::db
+        TBL_PAT[("luna-patients
+risk score updated")]:::db
+        TBL_AUDIT[("luna-audit-log")]:::db
+    end
+
+    subgraph WS["LunaWebSocketStack"]
+        WSAPI["API Gateway WebSocket
+wss:// persistent"]:::aws
+        CONN_FN(["connection_manager
+$connect / $disconnect"]):::fn
+        TBL_CONN[("luna-connections
+connectionId store")]:::db
+    end
+
+    %% Job submission
+    S3    -->|"ObjectCreated event"| SQS
+    DX_FN -->|"SendMessage"| SQS
+    SQS   -.->|"after 3 failures"| DLQ
+
+    %% Inference trigger
+    SQS    -->|"triggers worker"| INF_FN
+    INF_FN -->|"download scan"| S3
+    INF_FN -->|"read result  DEMO"| DEMO
+    INF_FN -. "BYPASSED IN DEMO
+would call InvokeEndpoint" .-> SM_EP
+
+    %% Store results
+    INF_FN --> TBL_DX & TBL_PAT
+    INF_FN -->|"audit write"| TBL_AUDIT
+
+    %% WebSocket push
+    INF_FN -->|"push risk score"| WSAPI
+    WSAPI  -->|"result JSON"| BROWSER
+
+    %% Connection lifecycle
+    BROWSER -->|"WSS connect"| WSAPI
+    WSAPI --> CONN_FN --> TBL_CONN

@@ -1,0 +1,104 @@
+%%{init: {"themeVariables": {"fontSize": "18px"}}}%%
+flowchart TB
+
+    classDef default font-size:18px
+    classDef client fill:#2a2a1a,stroke:#d4c84a,stroke-width:2px,color:#fff8c0,font-size:18px
+    classDef aws    fill:#1b2a3d,stroke:#4a90d9,color:#cce4ff,font-size:18px
+    classDef fn     fill:#1a2a3a,stroke:#f0a830,stroke-width:2px,color:#ffe4a0,font-size:18px
+    classDef db     fill:#1a2233,stroke:#5b8dd9,color:#c8dcff,font-size:18px
+    classDef secret fill:#2a1a33,stroke:#9b59b6,color:#e8d5ff,font-size:18px
+
+    BROWSER(["Clinician Browser"]):::client
+
+    %% ── Row 1: entry points ──────────────────────────────────────────────
+    subgraph FESTACK["LunaFrontendStack"]
+        direction LR
+        CF["CloudFront CDN"]:::aws --> S3FE[("S3 — Next.js static build")]:::aws
+    end
+
+    subgraph APISTACK["LunaApiStack"]
+        direction LR
+        APIGW["API Gateway REST"]:::aws -->|"protected routes"| AUTHZ(["Lambda Authorizer\nchecks session token"]):::fn
+    end
+
+    %% ── Row 2: handlers ──────────────────────────────────────────────────
+    subgraph HANDLERS["LunaLambdaStack"]
+        direction LR
+        AUTH_FN(["auth_handler\nlogin / logout"]):::fn
+        PAT_FN(["patient_handler\nlist & detail"]):::fn
+        UP_FN(["upload_handler\npre-signed S3 PUT"]):::fn
+        DX_FN(["diagnostic_handler\nenqueue ML job"]):::fn
+        AST_FN(["assistant_handler\nRAG + LLM"]):::fn
+    end
+
+    %% ── Row 3: storage — all combined ────────────────────────────────────
+    subgraph LUNASTORAGE["LunaStorageStack"]
+        direction TB
+        
+        subgraph AUTH_DATA["Auth & Security"]
+            direction LR
+            TBL_USR[("luna-users")]:::db
+            TBL_SES[("luna-sessions\nTTL 24 h")]:::db
+            TBL_LOGIN[("luna-login-attempts")]:::db
+            SECRET[/"Secrets Manager\nHMAC salt"/]:::secret
+        end
+
+        subgraph APP_DATA["Application Data"]
+            direction LR
+            TBL_PAT[("luna-patients")]:::db
+            TBL_DX[("luna-diagnostic-results")]:::db
+            TBL_CHAT[("luna-chat-history")]:::db
+            S3DICOM[("S3 luna-dicom")]:::aws
+        end
+
+        TBL_AUDIT[("luna-audit-log — PITR · 7-yr retention")]:::db
+    end
+
+    %% ── Legend (Pinned to bottom-right) ──────────────────────────────────
+    subgraph LEGEND["Legend"]
+        direction TB
+        L_CLIENT(["Client"]):::client
+        L_AWS[("AWS Service")]:::aws
+        L_FN(["Lambda Function"]):::fn
+        L_DB[("Database / Storage")]:::db
+        L_SEC[/"Secret"/]:::secret
+    end
+
+    %% ── Flows ────────────────────────────────────────────────────────────
+    %% Frontend
+    BROWSER -->|"HTTPS"| FESTACK
+
+    %% REST + authorizer
+    BROWSER -->|"REST"| APIGW
+    AUTHZ   -->|"token lookup"| TBL_SES
+
+    %% Route dispatch (APIGW → each handler)
+    APIGW -->|"POST /auth/*"| AUTH_FN
+    APIGW -->|"GET  /patients"| PAT_FN
+    APIGW -->|"POST /upload"| UP_FN
+    APIGW -->|"POST /diagnose"| DX_FN
+    APIGW -->|"POST /assistant/query"| AST_FN
+
+    %% auth_handler → Auth & Security tables
+    AUTH_FN --> TBL_USR & TBL_SES & TBL_LOGIN
+    AUTH_FN -->|"read salt"| SECRET
+
+    %% patient_handler → App tables
+    PAT_FN --> TBL_PAT & TBL_DX
+    PAT_FN -->|"pre-signed GET"| S3DICOM
+
+    %% upload_handler → App tables
+    UP_FN -->|"pre-signed PUT"| S3DICOM
+    UP_FN --> TBL_PAT
+
+    %% diagnostic_handler → App tables
+    DX_FN --> TBL_PAT & TBL_DX
+
+    %% assistant_handler → App tables
+    AST_FN --> TBL_PAT & TBL_DX & TBL_CHAT
+
+    %% All handlers → audit (converge at bottom)
+    AUTH_FN & PAT_FN & UP_FN & DX_FN & AST_FN -->|"audit write"| TBL_AUDIT
+
+    %% Invisible link to force the Legend to the right of the storage stack at the bottom
+    LUNASTORAGE ~~~ LEGEND

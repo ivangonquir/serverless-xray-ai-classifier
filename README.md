@@ -242,7 +242,6 @@ flowchart TB
     LUNASTORAGE ~~~ LEGEND
 ```
 
-
 ### How it works
 
 **CloudFront + S3** serve the Next.js static build globally over HTTPS. The browser never talks to a backend server — all API calls go to API Gateway.

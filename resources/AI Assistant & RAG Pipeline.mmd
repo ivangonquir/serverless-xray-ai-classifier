@@ -1,0 +1,74 @@
+flowchart LR
+
+    classDef client  fill:#2a2a1a,stroke:#d4c84a,stroke-width:2px,color:#fff8c0
+    classDef aws     fill:#1b2a3d,stroke:#4a90d9,color:#cce4ff
+    classDef fn      fill:#1a2a3a,stroke:#f0a830,stroke-width:2px,color:#ffe4a0
+    classDef db      fill:#1a2233,stroke:#5b8dd9,color:#c8dcff
+    classDef bedrock fill:#0d2b1a,stroke:#52c97a,stroke-width:2px,color:#b9f0b0
+    classDef demo    fill:#1a3a1a,stroke:#6abf69,stroke-width:2px,stroke-dasharray:5 3,color:#b9f0b0
+
+    BROWSER(["Clinician Browser
+natural-language question"]):::client
+
+    subgraph APISTACK["LunaApiStack"]
+        APIGW["API Gateway REST
+POST /assistant/query"]:::aws
+    end
+
+    subgraph LAMBDA["LunaLambdaStack"]
+        AST_FN(["assistant_handler
+RAG pipeline orchestrator"]):::fn
+    end
+
+    subgraph STORAGE["LunaStorageStack"]
+        OS[("OpenSearch luna-kb
+k-NN index · luna-docs")]:::aws
+        TBL_PAT[("luna-patients
+clinical context")]:::db
+        TBL_DX[("luna-diagnostic-results")]:::db
+        TBL_CHAT[("luna-chat-history")]:::db
+        TBL_AUDIT[("luna-audit-log")]:::db
+    end
+
+    subgraph BEDROCK["Amazon Bedrock — eu-west-1  (fully live)"]
+        TITAN(["Titan Embed Text v2
+query → dense vector"]):::bedrock
+        CLAUDE(["Claude Haiku 4.5
+LLM response generator"]):::bedrock
+    end
+
+    subgraph DEMO["DEMO — Hospital Simulation  (setup only, not runtime)"]
+        direction TB
+        SOS["seed_opensearch.py
+MIMIC-CXR · PubMed · Fleischner guidelines"]:::demo
+        SP["seed_patients.py
+Synthetic EHR records"]:::demo
+        SDB["seed_dynamodb.py
+Clinician accounts"]:::demo
+        SD["seed_dicom.py
+DICOM scans + pre-computed VLM results"]:::demo
+        S3DEMO[("S3 luna-dicom
+reference_outputs/")]:::aws
+        TBL_USR[("luna-users")]:::db
+    end
+
+    %% RAG pipeline — numbered steps
+    BROWSER  -->|"question"| APIGW --> AST_FN
+
+    AST_FN   -->|"1 embed query"| TITAN
+    TITAN    -->|"vector"| AST_FN
+    AST_FN   -->|"2 kNN search"| OS
+    OS       -->|"relevant docs"| AST_FN
+    AST_FN   -->|"3 patient context"| TBL_PAT & TBL_DX
+    AST_FN   -->|"4 LLM call"| CLAUDE
+    CLAUDE   -->|"response"| AST_FN
+    AST_FN   -->|"5 save conversation"| TBL_CHAT
+    AST_FN   -->|"audit write"| TBL_AUDIT
+    AST_FN   -->|"answer + citations"| BROWSER
+
+    %% Demo seeding (setup time only)
+    SOS   -. "seeds docs" .-> OS
+    TITAN -. "embeds at seeding" .-> OS
+    SP    -. "seeds patients" .-> TBL_PAT
+    SDB   -. "seeds users"   .-> TBL_USR
+    SD    -. "seeds DICOMs + VLM results" .-> S3DEMO
