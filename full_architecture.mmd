@@ -1,0 +1,193 @@
+flowchart TB
+
+    %% ── Styles ────────────────────────────────────────────────────────────
+    classDef offline   fill:#4a1942,stroke:#c97dbd,stroke-width:2px,stroke-dasharray:6 4,color:#f0c6ec
+    classDef demo      fill:#1a3a1a,stroke:#6abf69,stroke-width:2px,stroke-dasharray:5 3,color:#b9f0b0
+    classDef aws       fill:#1b2a3d,stroke:#4a90d9,color:#cce4ff
+    classDef lambda_fn fill:#1a2a3a,stroke:#f0a830,color:#ffe4a0
+    classDef dynamo    fill:#1a2233,stroke:#5b8dd9,color:#c8dcff
+    classDef client    fill:#2a2a1a,stroke:#d4c84a,color:#fff8c0
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% DEMO / SIMULATION LAYER  (not part of runtime architecture)
+    %% ══════════════════════════════════════════════════════════════════════
+    subgraph DEMO["🧪 Demo / Hospital Simulation Layer  ·  not runtime"]
+        direction LR
+        SD["seed_dicom.py\nUploads synthetic DICOM scans\n+ pre-computed VLM outputs\nto S3"]:::demo
+        SP["seed_patients.py\nInjects synthetic patient\nrecords into DynamoDB"]:::demo
+        SDB["seed_dynamodb.py\nCreates clinician accounts\nand test data"]:::demo
+        SOS["seed_opensearch.py\nIngests radiology reports,\nPubMed papers &amp; Fleischner\nguidelines into OpenSearch"]:::demo
+    end
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% CLIENT
+    %% ══════════════════════════════════════════════════════════════════════
+    subgraph CLIENT["Client"]
+        BROWSER["🌐 Clinician Browser"]:::client
+    end
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% FRONTEND  —  LunaFrontendStack
+    %% ══════════════════════════════════════════════════════════════════════
+    subgraph FESTACK["LunaFrontendStack · eu-west-1"]
+        CF["☁️ CloudFront Distribution\nHTTPS · global CDN"]:::aws
+        S3FE["S3 — Frontend Bucket\nNext.js 14 static build\nPatientWorkspace · Sidebar\nChatInterface · LunaMark"]:::aws
+    end
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% REST API  —  LunaApiStack
+    %% ══════════════════════════════════════════════════════════════════════
+    subgraph APISTACK["LunaApiStack · eu-west-1"]
+        APIGW["API Gateway REST\nHTTPS · rate limiting\nCORS · eu-west-1"]:::aws
+        AUTHORIZER["λ Lambda Authorizer\nvalidates session token\non every protected route"]:::lambda_fn
+    end
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% WEBSOCKET  —  LunaWebSocketStack
+    %% ══════════════════════════════════════════════════════════════════════
+    subgraph WSSTACK["LunaWebSocketStack · eu-west-1"]
+        WSAPI["API Gateway WebSocket\nwss://…execute-api\nroute-selection: action\nprod stage · auto-deploy"]:::aws
+    end
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% LAMBDA FUNCTIONS  —  LunaLambdaStack
+    %% ══════════════════════════════════════════════════════════════════════
+    subgraph LAMBDASTACK["LunaLambdaStack · eu-west-1"]
+        direction TB
+        AUTH_FN["λ auth_handler\nPOST /auth/login\nPOST /auth/logout\nPOST /auth/seed\nPy 3.11 · 256 MB · 10 s"]:::lambda_fn
+        PAT_FN["λ patient_handler\nGET  /patients\nGET  /patients/{id}\nPOST /patients\nPy 3.11 · 256 MB · 10 s"]:::lambda_fn
+        UP_FN["λ upload_handler\nPOST /patients/{id}/upload\ngenerates pre-signed\nS3 PUT URL\nPy 3.11 · 128 MB · 10 s"]:::lambda_fn
+        DX_FN["λ diagnostic_handler\nPOST /patients/{id}/diagnose\nvalidates &amp; enqueues job\nPy 3.11 · 256 MB · 15 s"]:::lambda_fn
+        AST_FN["λ assistant_handler\nPOST /assistant/query\nRAG pipeline + Bedrock LLM\nGET  /patients/{id}/chat\nPy 3.11 · 256 MB · 30 s"]:::lambda_fn
+        INF_FN["λ inference_worker\nSQS event source trigger\nmultimodal fusion pipeline\nDICOM → risk score → WS push\nPy 3.11 · 512 MB · 360 s"]:::lambda_fn
+        CONN_FN["λ connection_manager\nWebSocket $connect\nWebSocket $disconnect\nPy 3.11 · 128 MB · 5 s"]:::lambda_fn
+    end
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% STORAGE  —  LunaStorageStack
+    %% ══════════════════════════════════════════════════════════════════════
+    subgraph STORAGESTACK["LunaStorageStack · eu-west-1"]
+        direction TB
+
+        S3DICOM["S3 — luna-dicom-{account}\nDICOM scans · EHR docs\nreference_outputs/ ← demo VLM results\nCORS · SSE-S3 · block public"]:::aws
+        KMS["KMS Key\nSQS encryption\nkey rotation enabled"]:::aws
+        SECRET["Secrets Manager\nlunachat\nHMAC salt for bcrypt"]:::aws
+
+        subgraph QUEUES["Async Job Queue"]
+            SQS["SQS — luna-diagnostic-queue\nvisibility timeout 2160 s\nKMS encrypted"]:::aws
+            DLQ["SQS — luna-diagnostic-dlq\nDead-Letter Queue\nmaxReceive = 3 · retain 14d"]:::aws
+        end
+
+        subgraph DYNAMO["DynamoDB Tables  ·  on-demand billing"]
+            TBL_USR["luna-users\n+ UsernameIndex GSI"]:::dynamo
+            TBL_SES["luna-sessions\nTTL 24 h"]:::dynamo
+            TBL_PAT["luna-patients"]:::dynamo
+            TBL_DX["luna-diagnostic-results\n+ PatientIdIndex GSI"]:::dynamo
+            TBL_CHAT["luna-chat-history"]:::dynamo
+            TBL_AUDIT["luna-audit-log\nPITR · deletion protected\n+ UserIdIndex GSI · TTL 7 yr"]:::dynamo
+            TBL_CONN["luna-connections\nTTL"]:::dynamo
+            TBL_LOGIN["luna-login-attempts\nTTL · rate-limit guard"]:::dynamo
+        end
+
+        OS["OpenSearch — luna-kb\nOPENSEARCH_2_11\nt3.small · 10 GB EBS\nRAG knowledge base\nradiology reports · PubMed · guidelines"]:::aws
+    end
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% BEDROCK  (fully live)
+    %% ══════════════════════════════════════════════════════════════════════
+    subgraph BEDROCKGRP["Amazon Bedrock · eu-west-1"]
+        CLAUDE["Claude Haiku 4.5\neu.anthropic.claude-haiku-4-5\nVirtual Assistant LLM"]:::aws
+        TITAN["Titan Embed Text v2\namazon.titan-embed-text-v2\nvector embeddings for RAG"]:::aws
+    end
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% SAGEMAKER  (partially implemented — endpoint OFFLINE)
+    %% ══════════════════════════════════════════════════════════════════════
+    subgraph SMSTACK["LunaSageMakerStack · eu-west-1  ⚠️  ENDPOINT OFFLINE"]
+        SM_MODEL["SageMaker Model\nCheXOne VLM classifier\nPyTorch 2.6 · GPU · CUDA 12.4\nDocker image built &amp; pushed to ECR\nmodel weights → S3 model.tar.gz"]:::offline
+        SM_EP["SageMaker Endpoint\n❌ Not activated\nRequires --context model_artifact_uri\nInfrastructure code complete;\nendpoint not running in demo"]:::offline
+        SM_EC["SageMaker Endpoint Config\ncpu instance for demo\nml.c5.xlarge"]:::offline
+    end
+
+    %% ══════════════════════════════════════════════════════════════════════
+    %% DATA FLOWS
+    %% ══════════════════════════════════════════════════════════════════════
+
+    %% Client → Frontend
+    BROWSER -->|"HTTPS"| CF
+    CF -->|"serves static assets"| S3FE
+
+    %% Client → REST API
+    BROWSER -->|"REST HTTPS"| APIGW
+    APIGW -->|"every protected route"| AUTHORIZER
+    AUTHORIZER -->|"token lookup"| TBL_SES
+
+    %% REST routes → Lambdas
+    APIGW -->|"POST /auth/*"| AUTH_FN
+    APIGW -->|"GET /patients[/{id}]"| PAT_FN
+    APIGW -->|"POST /patients/{id}/upload"| UP_FN
+    APIGW -->|"POST /patients/{id}/diagnose"| DX_FN
+    APIGW -->|"POST /assistant/query\nGET /patients/{id}/chat"| AST_FN
+    APIGW -->|"GET /patients/{id}/image-url"| INF_FN
+
+    %% Client → WebSocket
+    BROWSER -->|"WSS"| WSAPI
+    WSAPI -->|"$connect / $disconnect"| CONN_FN
+    CONN_FN --- TBL_CONN
+
+    %% Auth handler
+    AUTH_FN --- TBL_USR
+    AUTH_FN --- TBL_SES
+    AUTH_FN --- TBL_AUDIT
+    AUTH_FN --- TBL_LOGIN
+    AUTH_FN -->|"read HMAC salt"| SECRET
+
+    %% Patient handler
+    PAT_FN --- TBL_PAT
+    PAT_FN --- TBL_DX
+    PAT_FN --- TBL_AUDIT
+    PAT_FN -->|"presigned GET"| S3DICOM
+
+    %% Upload handler
+    UP_FN -->|"issue presigned PUT URL"| S3DICOM
+    UP_FN --- TBL_PAT
+    UP_FN --- TBL_AUDIT
+
+    %% S3 event → SQS
+    S3DICOM -->|"S3 ObjectCreated\nprefix: uploads/"| SQS
+    KMS -.->|"encrypts"| SQS
+    SQS -.->|"after 3 failures"| DLQ
+
+    %% Diagnostic handler → SQS
+    DX_FN -->|"SendMessage"| SQS
+    DX_FN --- TBL_PAT
+    DX_FN --- TBL_DX
+    DX_FN --- TBL_AUDIT
+
+    %% Inference worker pipeline
+    SQS -->|"SQS event source"| INF_FN
+    INF_FN -->|"download DICOM"| S3DICOM
+    INF_FN -->|"read pre-computed\nVLM results  demo mode"| S3DICOM
+    INF_FN --- TBL_PAT
+    INF_FN --- TBL_DX
+    INF_FN --- TBL_AUDIT
+    INF_FN -->|"push result via WS mgmt API"| WSAPI
+
+    %% SageMaker OFFLINE bypass
+    INF_FN -. "⚠️ bypassed in demo\nwould call InvokeEndpoint\nif SM endpoint were online" .-> SM_EP
+    SM_MODEL -.-> SM_EC -.-> SM_EP
+
+    %% Assistant handler
+    AST_FN -->|"kNN vector search"| OS
+    AST_FN -->|"LLM completion\n(SM endpoint empty → Bedrock)"| CLAUDE
+    OS -.->|"embed query"| TITAN
+    AST_FN --- TBL_PAT
+    AST_FN --- TBL_DX
+    AST_FN --- TBL_CHAT
+    AST_FN --- TBL_AUDIT
+
+    %% Demo layer → AWS resources  (dashed green)
+    SD -. "seed DICOMs\n+ reference_outputs/" .-> S3DICOM
+    SP -. "seed patients" .-> TBL_PAT
+    SDB -. "seed users\n& initial data" .-> TBL_USR
+    SOS -. "ingest RAG\ndocuments" .-> OS
