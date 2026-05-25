@@ -90,8 +90,10 @@ class SecurityFlowIntegrationTest(unittest.TestCase):
         self.assertIn('"ALLOWED_ORIGINS"', lambda_stack)
         self.assertIn('endswith(".cloudfront.net")', (REPO_ROOT / "backend/lambdas/auth_handler/handler.py").read_text(encoding="utf-8"))
         self.assertIn('"https://*.cloudfront.net"', storage_stack)
+        self.assertIn("HMAC salt for password hashing", storage_stack)
+        self.assertIn('generate_string_key="salt"', storage_stack)
         self.assertIn("removal_policy=RemovalPolicy.RETAIN", storage_stack)
-        self.assertIn("point_in_time_recovery=True", storage_stack)
+        self.assertIn("point_in_time_recovery_enabled=True", storage_stack)
         self.assertIn("deletion_protection=True", storage_stack)
         self.assertIn('time_to_live_attribute="expiresAt"', storage_stack)
 

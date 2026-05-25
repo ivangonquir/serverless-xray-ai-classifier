@@ -71,6 +71,13 @@ class AuthSecurityUnitTest(unittest.TestCase):
         attempts = self.fake_aws.table("login-attempts").items
         self.assertEqual(attempts[0]["ip"], "192.0.2.5")
 
+    def test_password_hash_uses_secret_pepper_before_bcrypt(self):
+        hashed = self.auth._hash_password("secret")
+
+        self.assertNotEqual(hashed, "hashed:secret")
+        self.assertTrue(self.auth._verify_password("secret", hashed))
+        self.assertFalse(self.auth._verify_password("wrong", hashed))
+
 
 if __name__ == "__main__":
     unittest.main()

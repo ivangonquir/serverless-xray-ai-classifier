@@ -3,7 +3,8 @@ Auth Handler — POST /auth/login, POST /auth/logout, POST /auth/seed
 
 login:
   Validates username + password against UsersTable.
-  Passwords are stored as bcrypt hashes.
+  Passwords are HMAC-peppered with a Secrets Manager secret, then stored as
+  bcrypt hashes.
   On success, creates a 24-hour session token in SessionsTable and
   returns it to the client.
 
@@ -16,6 +17,8 @@ seed (dev only):
 """
 
 import bcrypt
+import hashlib
+import hmac
 import json
 import os
 import time
@@ -92,6 +95,7 @@ def get_secret():
              extra={"secretName": secret_name, "errorType": type(e).__name__})
         raise RuntimeError("Secrets Manager unreachable") from None
 PASSWORD_SECRET = get_secret()
+PASSWORD_PEPPER = None
 
 CORS = {
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
@@ -340,11 +344,44 @@ def _find_user_by_username(username: str) -> dict | None:
 
 
 def _hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(_password_material(password), bcrypt.gensalt()).decode()
 
 
 def _verify_password(password: str, stored_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode(), stored_hash.encode())
+    stored = stored_hash.encode()
+    if bcrypt.checkpw(_password_material(password), stored):
+        return True
+
+    # Backward compatibility for users created before the Secrets Manager
+    # pepper was applied to the bcrypt input.
+    if os.environ.get("ALLOW_LEGACY_BCRYPT_PASSWORDS", "true").lower() in {"1", "true", "yes"}:
+        return bcrypt.checkpw(password.encode(), stored)
+    return False
+
+
+def _password_material(password: str) -> bytes:
+    pepper = _password_pepper()
+    return hmac.new(
+        pepper.encode(),
+        password.encode(),
+        hashlib.sha256,
+    ).hexdigest().encode()
+
+
+def _password_pepper() -> str:
+    global PASSWORD_PEPPER
+    if PASSWORD_PEPPER:
+        return PASSWORD_PEPPER
+
+    try:
+        parsed = json.loads(PASSWORD_SECRET)
+        if isinstance(parsed, dict):
+            PASSWORD_PEPPER = parsed.get("pepper") or parsed.get("salt") or json.dumps(parsed, sort_keys=True)
+        else:
+            PASSWORD_PEPPER = str(parsed)
+    except (TypeError, json.JSONDecodeError):
+        PASSWORD_PEPPER = str(PASSWORD_SECRET)
+    return PASSWORD_PEPPER
 
 
 def _extract_token(event: dict) -> str:
